@@ -1,6 +1,12 @@
 -- Set <space> as the leader key
 -- See `:help mapleader`
 --  NOTE: Must happen before plugins are loaded (otherwise wrong leader will be used)
+vim.keymap.set('n', '<leader>f', vim.lsp.buf.format, { desc = 'Format File' })
+vim.opt.expandtab = true
+vim.opt.shiftwidth = 4
+vim.opt.tabstop = 4
+vim.opt.softtabstop = 4
+
 vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
