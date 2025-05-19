@@ -4,8 +4,7 @@ return {
     opts = {
       current_line_blame = true, -- Enable blame by default
       current_line_blame_opts = {
-        delay = 150, -- Set the delay to 150ms
-        virt_text_pos = 'eol', -- Display at end of line
+        delay = 300, -- Set the delay to 150ms
       },
       on_attach = function(bufnr)
         local gitsigns = require 'gitsigns'
