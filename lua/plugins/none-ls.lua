@@ -11,13 +11,15 @@ return {
         null_ls.builtins.formatting.prettier.with {
           filetypes = { 'json', 'yaml', 'markdown' },
           extra_args = {
-            '--print-width', '100',
-            '--prose-wrap', 'always'
-          }
+            '--print-width',
+            '100',
+            '--prose-wrap',
+            'always',
+          },
         },
         -- Lua formatting with stylua
         null_ls.builtins.formatting.stylua.with {
-          extra_args = { '--indent-type', 'Spaces', '--indent-width', '2' }
+          extra_args = { '--indent-type', 'Spaces', '--indent-width', '2' },
         },
         -- Python formatting with Ruff
         null_ls.builtins.formatting.ruff_format,

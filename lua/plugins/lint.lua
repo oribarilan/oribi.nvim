@@ -7,13 +7,12 @@ return {
       local lint = require 'lint'
       -- Disable default linters to avoid duplicates
       lint.linters_by_ft = {}
-      
+
       -- Configure only our chosen linters
       lint.linters_by_ft = {
         markdown = { 'markdownlint' },
         json = { 'jsonlint' },
         yaml = { 'yamllint' },
-        lua = { 'luacheck' }
       }
 
       -- To allow other plugins to add linters to require('lint').linters_by_ft,
@@ -62,6 +61,7 @@ return {
           end
         end,
       })
+      vim.keymap.set('n', '<leader>f', vim.lsp.buf.format, {})
     end,
   },
 }
