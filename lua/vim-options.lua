@@ -1,7 +1,7 @@
 -- Set <space> as the leader key
 -- See `:help mapleader`
 --  NOTE: Must happen before plugins are loaded (otherwise wrong leader will be used)
-vim.keymap.set('n', '<leader>f', 'gg=G', { desc = 'Format File' })
+vim.keymap.set('n', '<leader>f', ':normal! gg=G<CR>', { desc = 'Format File' })
 vim.opt.expandtab = true
 vim.opt.shiftwidth = 4
 vim.opt.tabstop = 4
