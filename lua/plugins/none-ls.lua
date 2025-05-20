@@ -26,7 +26,7 @@ return {
           extra_args = { '--indent-type', 'Spaces', '--indent-width', '2' },
         },
         -- Python formatting with Ruff
-        null_ls.builtins.formatting.ruff_format,
+        require("none-ls.formatting.ruff"),
       },
     }
     vim.keymap.set('n', '<leader>gf', vim.lsp.buf.format, {})
