@@ -208,7 +208,26 @@ return {
       local servers = {
         -- clangd = {},
         -- gopls = {},
-        pyright = {},
+        pyright = {
+          settings = {
+            pyright = {
+              disableOrganizeImports = true, -- Use Ruff's import organizer
+            },
+            python = {
+              analysis = {
+                ignore = { '*' }, -- Ignore files for Pyright analysis to use Ruff exclusively for linting
+              },
+            },
+          },
+        },
+        ruff = {
+          init_options = {
+            settings = {
+              logLevel = 'info',
+            },
+          },
+        },
+        prettier = {},
         -- rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --

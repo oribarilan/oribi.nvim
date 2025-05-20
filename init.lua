@@ -8,7 +8,7 @@ vim.keymap.set('n', 'H', '^', { noremap = true, silent = true })
 vim.keymap.set('n', 'L', '$', { noremap = true, silent = true })
 vim.keymap.set('o', 'H', '^', { noremap = true })
 vim.keymap.set('o', 'L', '$', { noremap = true })
-
+vim.keymap.set('n', '<leader>ca', 'ggVG"+y', { desc = 'Copy all to clipboard' })
 -- Clear highlights on search when pressing <Esc> in normal mode
 --  See `:help hlsearch`
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
