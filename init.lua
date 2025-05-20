@@ -84,7 +84,6 @@ rtp:prepend(lazypath)
 --  To update plugins you can run
 --    :Lazy update
 --
--- NOTE: Here is where you install your plugins.
 require('lazy').setup 'plugins'
 
 -- The line beneath this is called `modeline`. See `:help modeline`
