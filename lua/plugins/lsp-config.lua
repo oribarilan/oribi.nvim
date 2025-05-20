@@ -206,56 +206,46 @@ return {
       --  - settings (table): Override the default settings passed when initializing the server.
       --        For example, to see the options for `lua_ls`, you could go to: https://luals.github.io/wiki/settings/
       local servers = {
-        -- clangd = {},
-        -- gopls = {},
+        -- Pyright for type checking only
         pyright = {
           settings = {
             pyright = {
-              disableOrganizeImports = true, -- Use Ruff's import organizer
+              -- Using Ruff's import organizer
+              disableOrganizeImports = true,
             },
             python = {
               analysis = {
-                ignore = { '*' }, -- Ignore files for Pyright analysis to use Ruff exclusively for linting
+                -- Ignore all files for analysis to exclusively use Ruff for linting
+                ignore = { '*' },
               },
             },
           },
         },
-        ruff = {
-          on_attach = function(client, _)
-            -- Enable formatting capabilities
-            client.server_capabilities.documentFormattingProvider = true
-            client.server_capabilities.documentRangeFormattingProvider = true
-          end,
-          init_options = {
-            settings = {
-              logLevel = 'info',
-              -- Enable all rules including formatting ones
-              args = {
-                "--select=ALL,F",  -- Include F (formatting) rules
-                "--ignore=D",      -- Ignore docstring rules
-                "--line-length=88" -- Standard line length
-              },
-              -- Enable format-related diagnostics to show them inline
-              format = {
-                enabled = true,
-                -- Show formatting violations as diagnostics
-                formatInplace = true,
-                showDiagnostics = true
-              }
-            },
-          },
-        },
-        prettier = {},
-        -- rust_analyzer = {},
-        -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
-        --
-        -- Some languages (like typescript) have entire language plugins that can be useful:
-        --    https://github.com/pmizio/typescript-tools.nvim
-        --
-        -- But for many setups, the LSP (`ts_ls`) will work just fine
-        -- ts_ls = {},
-        --
 
+        -- YAML language server
+        yamlls = {
+          settings = {
+            yaml = {
+              schemaStore = { enable = true },
+              validate = true,
+              format = { enable = true },
+              hover = true,
+              completion = true,
+            },
+          },
+        },
+
+        -- JSON language server
+        jsonls = {
+          settings = {
+            json = {
+              validate = { enable = true },
+              format = { enable = true },
+            },
+          },
+        },
+
+        -- Lua language server
         lua_ls = {
           -- cmd = { ... },
           -- filetypes = { ... },
@@ -287,7 +277,11 @@ return {
       -- for you, so that they are available from within Neovim.
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
-        'stylua', -- Used to format Lua code
+        'stylua',    -- Lua formatter
+        'markdownlint', -- Markdown linter
+        'yamllint',  -- YAML linter
+        'jsonlint',  -- JSON linter
+        'luacheck',  -- Lua linter
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
