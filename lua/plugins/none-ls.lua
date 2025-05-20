@@ -15,6 +15,10 @@ return {
             '100',
             '--prose-wrap',
             'always',
+            '--use-tabs',
+            'false',
+            '--tab-width',
+            '2',
           },
         },
         -- Lua formatting with stylua
