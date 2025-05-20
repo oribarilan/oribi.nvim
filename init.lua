@@ -1,6 +1,8 @@
 -- source all custom vim options
 require 'vim-options'
 
+-- python
+vim.env.PYTHONPATH = 'src'
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
 
