@@ -221,9 +221,27 @@ return {
           },
         },
         ruff = {
+          on_attach = function(client, _)
+            -- Enable formatting capabilities
+            client.server_capabilities.documentFormattingProvider = true
+            client.server_capabilities.documentRangeFormattingProvider = true
+          end,
           init_options = {
             settings = {
               logLevel = 'info',
+              -- Enable all rules including formatting ones
+              args = {
+                "--select=ALL,F",  -- Include F (formatting) rules
+                "--ignore=D",      -- Ignore docstring rules
+                "--line-length=88" -- Standard line length
+              },
+              -- Enable format-related diagnostics to show them inline
+              format = {
+                enabled = true,
+                -- Show formatting violations as diagnostics
+                formatInplace = true,
+                showDiagnostics = true
+              }
             },
           },
         },
@@ -322,8 +340,8 @@ return {
       end,
       formatters_by_ft = {
         lua = { 'stylua' },
-        -- Conform can also run multiple formatters sequentially
-        python = { 'ruff' },
+        -- Use Ruff's LSP formatter
+        python = { "ruff" },
         --
         -- You can use 'stop_after_first' to run the first available formatter from the list
         -- javascript = { "prettierd", "prettier", stop_after_first = true },
