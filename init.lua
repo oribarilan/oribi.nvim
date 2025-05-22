@@ -87,6 +87,14 @@ rtp:prepend(lazypath)
 --    :Lazy update
 --
 require('lazy').setup 'plugins'
-
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
+
+-- Auto source lua scripts
+local myutils_path = vim.fn.stdpath 'config' .. '/lua/scripts'
+for _, file in ipairs(vim.fn.glob(myutils_path .. '/*.lua', true, true)) do
+  local modname = file:match '.*/(.-)%.lua$'
+  if modname then
+    require('scripts.' .. modname)
+  end
+end
