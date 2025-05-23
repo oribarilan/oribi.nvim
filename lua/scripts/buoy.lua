@@ -15,6 +15,10 @@ local state = {
   },
 }
 
+local function get_window_title()
+  return string.format(" Buoy [%d/%d] ", state.floating.current_tab, #state.floating.tabs)
+end
+
 local function create_floating_window(opts)
   opts = opts or {}
   local width = opts.width or math.floor(vim.o.columns * 0.8)
@@ -23,16 +27,6 @@ local function create_floating_window(opts)
   -- Calculate the position to center the window
   local col = math.floor((vim.o.columns - width) / 2)
   local row = math.floor((vim.o.lines - height) / 2)
-
-  -- Get or create buffer for current tab
-  local current_tab = state.floating.tabs[state.floating.current_tab]
-  local buf = nil
-  if vim.api.nvim_buf_is_valid(current_tab.buf) then
-    buf = current_tab.buf
-  else
-    buf = vim.api.nvim_create_buf(false, true) -- No file, scratch buffer
-    current_tab.buf = buf
-  end
 
   -- Define window configuration
   local win_config = {
@@ -52,30 +46,37 @@ local function create_floating_window(opts)
       { "╰", "FloatBorder" },
       { "│", "FloatBorder" },
     },
-    title = " Terminal [" .. state.floating.current_tab .. "] ",
+    title = get_window_title(),
     title_pos = "left",
   }
 
+  -- Create an empty buffer first
+  local buf = vim.api.nvim_create_buf(false, true)
+  
   -- Create the floating window
   local win = vim.api.nvim_open_win(buf, true, win_config)
 
-  return { win = win }
+  return { win = win, buf = buf }
 end
 
-local function init_terminal_buffer(buf)
-  if not vim.api.nvim_buf_is_valid(buf) or vim.bo[buf].buftype ~= 'terminal' then
-    buf = vim.api.nvim_create_buf(false, true)
+local function init_terminal_buffer(tab_index)
+  local tab = state.floating.tabs[tab_index]
+  
+  -- Create new terminal buffer if needed
+  if not vim.api.nvim_buf_is_valid(tab.buf) or vim.bo[tab.buf].buftype ~= 'terminal' then
+    local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_set_current_buf(buf)
     vim.cmd.terminal()
-    return buf
+    tab.buf = buf
   end
-  return buf
+  
+  return tab.buf
 end
 
 local function update_window_title()
   if vim.api.nvim_win_is_valid(state.floating.win) then
     vim.api.nvim_win_set_config(state.floating.win, {
-      title = " Terminal [" .. state.floating.current_tab .. "] ",
+      title = get_window_title(),
       title_pos = "left",
     })
   end
@@ -85,11 +86,10 @@ local function switch_to_tab(tab_number)
   if tab_number >= 1 and tab_number <= #state.floating.tabs then
     state.floating.current_tab = tab_number
     if vim.api.nvim_win_is_valid(state.floating.win) then
-      local current_tab = state.floating.tabs[state.floating.current_tab]
       -- Initialize terminal if needed
-      current_tab.buf = init_terminal_buffer(current_tab.buf)
+      local buf = init_terminal_buffer(tab_number)
       -- Set the buffer in the window
-      vim.api.nvim_win_set_buf(state.floating.win, current_tab.buf)
+      vim.api.nvim_win_set_buf(state.floating.win, buf)
       -- Update the window title
       update_window_title()
     end
@@ -102,9 +102,8 @@ local toggle_terminal = function()
     state.floating.win = result.win
     
     -- Initialize the current tab's terminal buffer
-    local current_tab = state.floating.tabs[state.floating.current_tab]
-    current_tab.buf = init_terminal_buffer(current_tab.buf)
-    vim.api.nvim_win_set_buf(state.floating.win, current_tab.buf)
+    local buf = init_terminal_buffer(state.floating.current_tab)
+    vim.api.nvim_win_set_buf(state.floating.win, buf)
   else
     vim.api.nvim_win_hide(state.floating.win)
   end
