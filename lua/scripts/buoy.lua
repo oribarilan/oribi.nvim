@@ -11,6 +11,7 @@ local state = {
     tabs = {
       { buf = -1 },
       { buf = -1 },
+      { buf = -1, command = 'lazygit' },
     },
   },
 }
@@ -66,8 +67,13 @@ local function init_terminal_buffer(tab_index)
   if not vim.api.nvim_buf_is_valid(tab.buf) or vim.bo[tab.buf].buftype ~= 'terminal' then
     local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_set_current_buf(buf)
-    vim.cmd.terminal()
-    tab.buf = buf
+    if tab.command then
+      tab.buf = buf
+      vim.fn.termopen(tab.command)
+    else
+      vim.cmd.terminal()
+      tab.buf = buf
+    end
   end
 
   return tab.buf
@@ -85,14 +91,16 @@ end
 local function switch_to_tab(tab_number)
   if tab_number >= 1 and tab_number <= #state.floating.tabs then
     state.floating.current_tab = tab_number
-    if vim.api.nvim_win_is_valid(state.floating.win) then
-      -- Initialize terminal if needed
-      local buf = init_terminal_buffer(tab_number)
-      -- Set the buffer in the window
-      vim.api.nvim_win_set_buf(state.floating.win, buf)
-      -- Update the window title
-      update_window_title()
+    if not vim.api.nvim_win_is_valid(state.floating.win) then
+      local result = create_floating_window()
+      state.floating.win = result.win
     end
+    -- Initialize terminal if needed
+    local buf = init_terminal_buffer(tab_number)
+    -- Set the buffer in the window
+    vim.api.nvim_win_set_buf(state.floating.win, buf)
+    -- Update the window title
+    update_window_title()
   end
 end
 
@@ -118,3 +126,8 @@ end, { desc = 'Switch to terminal tab 1' })
 vim.keymap.set({ 'n', 't' }, '<leader>b2', function()
   switch_to_tab(2)
 end, { desc = 'Switch to terminal tab 2' })
+
+-- Lazygit key mapping
+vim.keymap.set({ 'n' }, '<leader>bg', function()
+  switch_to_tab(3)
+end, { desc = 'Switch to Lazygit' })
