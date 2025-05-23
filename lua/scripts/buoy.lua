@@ -1,40 +1,49 @@
--- floating terminal, based off of tjdevries
+-- Floating terminal based on tjdevries
 -- https://github.com/tjdevries/advent-of-nvim/blob/master/nvim/plugin/floaterminal.lua
 
--- exiting terminal mode with double esc
-vim.keymap.set('t', '<esc><esc>', '<c-\\><c-n>')
-
+--[[ State Configuration ]]
 local state = {
   floating = {
     win = -1,
-    current_tab = 1,
-    tabs = {
-      { buf = -1 },
-      { buf = -1 },
-      { buf = -1 },
-      { buf = -1, command = 'lazygit' },
+    current_buf = 1,
+    bufs = {
+      { buf = -1 }, -- Terminal buffer 1
+      { buf = -1 }, -- Terminal buffer 2
+      { buf = -1 }, -- Terminal buffer 3
+      { buf = -1, command = 'lazygit' }, -- Lazygit buffer
     },
   },
 }
 
+--[[ Helper Functions ]]
 local function get_window_title()
-  local current_tab = state.floating.tabs[state.floating.current_tab]
-  local command_str = current_tab.command and (' ' .. current_tab.command) or ''
+  local current_buf = state.floating.bufs[state.floating.current_buf]
+  local command_str = current_buf.command and (' ' .. current_buf.command) or ''
   local mode = vim.api.nvim_get_mode().mode
-  local mode_str = mode:match('^t') and ' [TERM]' or ' [NORM]'
-  return string.format(' Buoy [%d/%d]%s%s ', state.floating.current_tab, #state.floating.tabs, mode_str, command_str)
+  local mode_str = mode:match '^t' and ' [TERM]' or ' [NORM]'
+  return string.format(' Buoy [%d/%d]%s%s ', state.floating.current_buf, #state.floating.bufs, mode_str, command_str)
 end
 
+local function update_window_title()
+  if vim.api.nvim_win_is_valid(state.floating.win) then
+    vim.api.nvim_win_set_config(state.floating.win, {
+      title = get_window_title(),
+      title_pos = 'left',
+    })
+  end
+end
+
+--[[ Window Management ]]
 local function create_floating_window(opts)
   opts = opts or {}
   local width = opts.width or math.floor(vim.o.columns * 0.8)
   local height = opts.height or math.floor(vim.o.lines * 0.8)
 
-  -- Calculate the position to center the window
+  -- Calculate center position
   local col = math.floor((vim.o.columns - width) / 2)
   local row = math.floor((vim.o.lines - height) / 2)
 
-  -- Define window configuration
+  -- Window configuration
   local win_config = {
     relative = 'editor',
     width = width,
@@ -56,112 +65,100 @@ local function create_floating_window(opts)
     title_pos = 'left',
   }
 
-  -- create an empty buffer first
   local buf = vim.api.nvim_create_buf(false, true)
-
-  -- create the floating window
   local win = vim.api.nvim_open_win(buf, true, win_config)
 
   return { win = win, buf = buf }
 end
 
-local function init_terminal_buffer(tab_index)
-  local tab = state.floating.tabs[tab_index]
+--[[ Terminal Management ]]
+local function init_terminal_buffer(buf_index)
+  local buf_config = state.floating.bufs[buf_index]
 
-  -- create new terminal buffer if needed
-  if not vim.api.nvim_buf_is_valid(tab.buf) or vim.bo[tab.buf].buftype ~= 'terminal' then
+  if not vim.api.nvim_buf_is_valid(buf_config.buf) or vim.bo[buf_config.buf].buftype ~= 'terminal' then
     local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_set_current_buf(buf)
-    if tab.command then
-      tab.buf = buf
-      vim.fn.termopen(tab.command)
+    if buf_config.command then
+      buf_config.buf = buf
+      vim.fn.termopen(buf_config.command)
     else
       vim.cmd.terminal()
-      tab.buf = buf
+      buf_config.buf = buf
     end
   end
 
-  return tab.buf
+  return buf_config.buf
 end
 
-local function update_window_title()
-  if vim.api.nvim_win_is_valid(state.floating.win) then
-    vim.api.nvim_win_set_config(state.floating.win, {
-      title = get_window_title(),
-      title_pos = 'left',
-    })
-  end
-end
-
-local function switch_to_tab(tab_number)
-  if tab_number >= 1 and tab_number <= #state.floating.tabs then
-    state.floating.current_tab = tab_number
+local function switch_to_buffer(buf_number)
+  if buf_number >= 1 and buf_number <= #state.floating.bufs then
+    state.floating.current_buf = buf_number
     if not vim.api.nvim_win_is_valid(state.floating.win) then
       local result = create_floating_window()
       state.floating.win = result.win
     end
-    -- Initialize terminal if needed
-    local buf = init_terminal_buffer(tab_number)
-    -- Set the buffer in the window
+    local buf = init_terminal_buffer(buf_number)
     vim.api.nvim_win_set_buf(state.floating.win, buf)
-    -- Update the window title
     update_window_title()
   end
 end
 
-local toggle_terminal = function()
+local function toggle_terminal()
   if not vim.api.nvim_win_is_valid(state.floating.win) then
     local result = create_floating_window()
     state.floating.win = result.win
-
-    -- Initialize the current tab's terminal buffer
-    local buf = init_terminal_buffer(state.floating.current_tab)
+    local buf = init_terminal_buffer(state.floating.current_buf)
     vim.api.nvim_win_set_buf(state.floating.win, buf)
   else
     vim.api.nvim_win_hide(state.floating.win)
   end
 end
 
--- Key mappings
-vim.api.nvim_create_user_command('Buoy', toggle_terminal, {})
-vim.keymap.set({ 'n', 't' }, '<leader>bb', toggle_terminal, { desc = 'Toggle Buoy terminal' })
-vim.keymap.set({ 'n', 't' }, '<leader>b1', function()
-  switch_to_tab(1)
-end, { desc = 'Switch to terminal tab 1' })
-vim.keymap.set({ 'n', 't' }, '<leader>b2', function()
-  switch_to_tab(2)
-end, { desc = 'Switch to terminal tab 2' })
-
--- Create autocommand to update title on mode changes
-vim.api.nvim_create_autocmd({ 'ModeChanged' }, {
-  callback = function()
-    update_window_title()
-  end,
-})
-
-local function kill_current_tab()
+local function kill_current_buffer()
   if vim.api.nvim_win_is_valid(state.floating.win) then
-    local current_tab = state.floating.tabs[state.floating.current_tab]
-    local buf_to_delete = current_tab.buf
-    
+    local current_buf_config = state.floating.bufs[state.floating.current_buf]
+    local buf_to_delete = current_buf_config.buf
+
     vim.api.nvim_win_hide(state.floating.win)
-    
+
     if vim.api.nvim_buf_is_valid(buf_to_delete) then
       vim.api.nvim_buf_delete(buf_to_delete, { force = true })
     end
-    current_tab.buf = -1
+    current_buf_config.buf = -1
   end
 end
 
--- Kill buffer mapping
-vim.keymap.set({ 'n', 't' }, '<leader>bk', kill_current_tab, { desc = 'Kill current buoy tab' })
+--[[ Key Mappings and Commands ]]
+-- Terminal mode escape
+vim.keymap.set('t', '<esc><esc>', '<c-\\><c-n>')
 
--- Tab 3 mapping
-vim.keymap.set({ 'n', 't' }, '<leader>b3', function()
-  switch_to_tab(3)
-end, { desc = 'Switch to terminal tab 3' })
+-- Toggle terminal
+vim.api.nvim_create_user_command('Buoy', toggle_terminal, {})
+vim.keymap.set('n', '<leader>bb', toggle_terminal, { desc = 'Toggle Buoy terminal' })
 
--- Lazygit key mapping
-vim.keymap.set({ 'n' }, '<leader>bg', function()
-  switch_to_tab(4)
+-- Buffer switching
+vim.keymap.set('n', '<leader>b1', function()
+  switch_to_buffer(1)
+end, { desc = 'Switch to terminal buffer 1' })
+vim.keymap.set('n', '<leader>b2', function()
+  switch_to_buffer(2)
+end, { desc = 'Switch to terminal buffer 2' })
+vim.keymap.set('n', '<leader>b3', function()
+  switch_to_buffer(3)
+end, { desc = 'Switch to terminal buffer 3' })
+vim.keymap.set('n', '<leader>bg', function()
+  switch_to_buffer(4)
 end, { desc = 'Switch to Lazygit' })
+
+-- Buffer management
+vim.keymap.set('n', '<leader>bk', kill_current_buffer, { desc = 'Kill current buoy buffer' })
+
+--[[ Autocommands ]]
+vim.api.nvim_create_autocmd({ 'ModeChanged' }, {
+  callback = function()
+    -- Only update title if we're in the Buoy window
+    if vim.api.nvim_get_current_win() == state.floating.win then
+      update_window_title()
+    end
+  end,
+})
