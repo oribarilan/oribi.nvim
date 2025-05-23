@@ -1,3 +1,13 @@
+--- Show errors and warnings in a floating window
+vim.api.nvim_create_autocmd('CursorHold', {
+  callback = function()
+    vim.diagnostic.open_float(nil, { focusable = false, source = 'if_many' })
+  end,
+})
+-- leader-k to focus on the diagnostic window, q to quit
+vim.keymap.set('n', '<leader>k', function()
+  vim.diagnostic.open_float()
+end, { desc = 'Diagnostic float' })
 -- LSP Plugins
 return {
   {
