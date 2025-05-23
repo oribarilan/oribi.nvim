@@ -41,8 +41,19 @@ local function create_floating_window(opts)
     height = height,
     col = col,
     row = row,
-    style = 'minimal', -- No borders or extra UI elements
-    border = 'rounded',
+    style = 'minimal',
+    border = {
+      { "╭", "FloatBorder" },
+      { "─", "FloatBorder" },
+      { "╮", "FloatBorder" },
+      { "│", "FloatBorder" },
+      { "╯", "FloatBorder" },
+      { "─", "FloatBorder" },
+      { "╰", "FloatBorder" },
+      { "│", "FloatBorder" },
+    },
+    title = " Terminal [" .. state.floating.current_tab .. "] ",
+    title_pos = "left",
   }
 
   -- Create the floating window
@@ -61,6 +72,15 @@ local function init_terminal_buffer(buf)
   return buf
 end
 
+local function update_window_title()
+  if vim.api.nvim_win_is_valid(state.floating.win) then
+    vim.api.nvim_win_set_config(state.floating.win, {
+      title = " Terminal [" .. state.floating.current_tab .. "] ",
+      title_pos = "left",
+    })
+  end
+end
+
 local function switch_to_tab(tab_number)
   if tab_number >= 1 and tab_number <= #state.floating.tabs then
     state.floating.current_tab = tab_number
@@ -70,6 +90,8 @@ local function switch_to_tab(tab_number)
       current_tab.buf = init_terminal_buffer(current_tab.buf)
       -- Set the buffer in the window
       vim.api.nvim_win_set_buf(state.floating.win, current_tab.buf)
+      -- Update the window title
+      update_window_title()
     end
   end
 end
