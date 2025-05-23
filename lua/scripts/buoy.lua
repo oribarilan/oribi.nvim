@@ -20,7 +20,9 @@ local state = {
 local function get_window_title()
   local current_tab = state.floating.tabs[state.floating.current_tab]
   local command_str = current_tab.command and (' ' .. current_tab.command) or ''
-  return string.format(' Buoy [%d/%d]%s ', state.floating.current_tab, #state.floating.tabs, command_str)
+  local mode = vim.api.nvim_get_mode().mode
+  local mode_str = mode:match('^t') and ' [TERM]' or ' [NORM]'
+  return string.format(' Buoy [%d/%d]%s%s ', state.floating.current_tab, #state.floating.tabs, mode_str, command_str)
 end
 
 local function create_floating_window(opts)
@@ -129,6 +131,13 @@ end, { desc = 'Switch to terminal tab 1' })
 vim.keymap.set({ 'n', 't' }, '<leader>b2', function()
   switch_to_tab(2)
 end, { desc = 'Switch to terminal tab 2' })
+
+-- Create autocommand to update title on mode changes
+vim.api.nvim_create_autocmd({ 'ModeChanged' }, {
+  callback = function()
+    update_window_title()
+  end,
+})
 
 local function kill_current_tab()
   if vim.api.nvim_win_is_valid(state.floating.win) then
