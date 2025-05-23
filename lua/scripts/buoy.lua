@@ -58,5 +58,5 @@ end
 
 -- Example usage:
 -- Create a floating window with default dimensions
-vim.api.nvim_create_user_command('Sky', toggle_terminal, {})
-vim.keymap.set({ 'n', 't' }, '<leader>tt', toggle_terminal, { desc = 'Toggle Sky terminal' })
+vim.api.nvim_create_user_command('Buoy', toggle_terminal, {})
+vim.keymap.set({ 'n', 't' }, '<leader>tt', toggle_terminal, { desc = 'Toggle Buoy terminal' })
