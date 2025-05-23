@@ -11,13 +11,16 @@ local state = {
     tabs = {
       { buf = -1 },
       { buf = -1 },
+      { buf = -1 },
       { buf = -1, command = 'lazygit' },
     },
   },
 }
 
 local function get_window_title()
-  return string.format(' Buoy [%d/%d] ', state.floating.current_tab, #state.floating.tabs)
+  local current_tab = state.floating.tabs[state.floating.current_tab]
+  local command_str = current_tab.command and (' ' .. current_tab.command) or ''
+  return string.format(' Buoy [%d/%d]%s ', state.floating.current_tab, #state.floating.tabs, command_str)
 end
 
 local function create_floating_window(opts)
@@ -127,7 +130,29 @@ vim.keymap.set({ 'n', 't' }, '<leader>b2', function()
   switch_to_tab(2)
 end, { desc = 'Switch to terminal tab 2' })
 
+local function kill_current_tab()
+  if vim.api.nvim_win_is_valid(state.floating.win) then
+    local current_tab = state.floating.tabs[state.floating.current_tab]
+    local buf_to_delete = current_tab.buf
+    
+    vim.api.nvim_win_hide(state.floating.win)
+    
+    if vim.api.nvim_buf_is_valid(buf_to_delete) then
+      vim.api.nvim_buf_delete(buf_to_delete, { force = true })
+    end
+    current_tab.buf = -1
+  end
+end
+
+-- Kill buffer mapping
+vim.keymap.set({ 'n', 't' }, '<leader>bk', kill_current_tab, { desc = 'Kill current buoy tab' })
+
+-- Tab 3 mapping
+vim.keymap.set({ 'n', 't' }, '<leader>b3', function()
+  switch_to_tab(3)
+end, { desc = 'Switch to terminal tab 3' })
+
 -- Lazygit key mapping
 vim.keymap.set({ 'n' }, '<leader>bg', function()
-  switch_to_tab(3)
+  switch_to_tab(4)
 end, { desc = 'Switch to Lazygit' })
