@@ -1,5 +1,5 @@
 -- Initialize backend (change to sorcon_be_mock for testing)
-local backend = require('scripts.sorcon_be_ado')
+local backend = require('scripts.sorcon_be_mock')
 
 -- Helper function to format author name
 local function format_author(name)

@@ -1,58 +1,90 @@
 local M = {}
 
--- Mock data
-local mock_prs = {
-  {
-    pullRequestId = 1234,
-    title = "Add new feature X",
-    createdBy = { displayName = "John Doe" },
-    creationDate = "2025-05-24T10:30:00Z",
-    sourceRefName = "refs/heads/feature/X",
-    targetRefName = "refs/heads/main",
-    url = "https://dev.azure.com/mock/project/_git/repo/pullrequest/1234"
+-- Mock data formatted as if from README.md
+local mock_data = {
+  prs = {
+    {
+      pullRequestId = 1234,
+      title = "Update project documentation",
+      createdBy = { displayName = "John Doe" },
+      creationDate = "2025-05-24T10:30:00Z",
+      sourceRefName = "refs/heads/feature/docs",
+      targetRefName = "refs/heads/main",
+      url = "https://dev.azure.com/mock/project/_git/repo/pullrequest/1234"
+    },
+    {
+      pullRequestId = 1235,
+      title = "Fix README formatting",
+      createdBy = { displayName = "Jane Smith" },
+      creationDate = "2025-05-24T11:00:00Z",
+      sourceRefName = "refs/heads/bugfix/docs",
+      targetRefName = "refs/heads/main",
+      url = "https://dev.azure.com/mock/project/_git/repo/pullrequest/1235"
+    }
   },
-  {
-    pullRequestId = 1235,
-    title = "Fix critical bug Y",
-    createdBy = { displayName = "Jane Smith" },
-    creationDate = "2025-05-24T11:00:00Z",
-    sourceRefName = "refs/heads/bugfix/Y",
-    targetRefName = "refs/heads/main",
-    url = "https://dev.azure.com/mock/project/_git/repo/pullrequest/1235"
-  }
+  changes = {
+    path = "README.md",
+    new_id = "abc123",
+    old_id = "def456"
+  },
+  pr_content = [[# Project Title
+
+## Description
+An awesome project that does amazing things.
+
+## Installation
+```bash
+npm install my-project
+```
+
+## Usage
+```javascript
+const myProject = require('my-project');
+myProject.doAwesome();
+```
+
+## Contributing
+PRs are welcome! Please read our contributing guidelines.
+
+## License
+MIT]]
 }
 
-local mock_changes = {
-  path = "src/main.lua",
-  new_id = "abc123",
-  old_id = "def456"
-}
-
-local mock_file_content = [[
--- This is mock file content
-function hello()
-  print("Hello from mock!")
+-- Helper to read local file content
+local function read_local_file(path)
+  local file = io.open(path, "r")
+  if not file then return nil end
+  local content = file:read("*a")
+  file:close()
+  return content
 end
 
-return {
-  hello = hello
-}
-]]
-
 function M.fetch_prs()
-  return mock_prs
+  return mock_data.prs
 end
 
 function M.fetch_first_change(_)
-  return mock_changes
+  return mock_data.changes
 end
 
 function M.get_latest_iteration(_)
   return 1
 end
 
-function M.fetch_file_content(_, _)
-  return mock_file_content
+function M.fetch_file_content(path, ref)
+  -- For mock PR content (source branch)
+  if ref:match("feature/") or ref:match("bugfix/") then
+    return mock_data.pr_content
+  end
+  
+  -- For main branch, read the actual local file
+  path = path:gsub("^/", "") -- Remove leading slash if present
+  local content = read_local_file(path)
+  if not content then
+    -- Fallback to empty content if file doesn't exist
+    return "# Empty File\n\nThis file does not exist in the local repository."
+  end
+  return content
 end
 
 return M
