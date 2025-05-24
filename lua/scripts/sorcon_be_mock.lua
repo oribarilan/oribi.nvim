@@ -27,6 +27,31 @@ local mock_data = {
     new_id = "abc123",
     old_id = "def456"
   },
+  threads = {
+    {
+      id = 1,
+      status = "active",
+      threadContext = {
+        filePath = "README.md",
+        rightFileStart = { line = 4 }, -- Points to Description section
+        rightFileEnd = { line = 4 }
+      },
+      comments = {
+        {
+          id = 1,
+          content = "Could you expand this section with more details?",
+          author = { displayName = "Jane Smith" },
+          createdDate = "2025-05-24T11:00:00Z"
+        },
+        {
+          id = 2,
+          content = "Sure, I'll add more information about the project's goals.",
+          author = { displayName = "John Doe" },
+          createdDate = "2025-05-24T11:05:00Z"
+        }
+      }
+    }
+  },
   pr_content = [[# Project Title
 
 ## Description
@@ -69,6 +94,10 @@ end
 
 function M.get_latest_iteration(_)
   return 1
+end
+
+function M.get_threads(_)
+  return mock_data.threads
 end
 
 function M.fetch_file_content(path, ref)

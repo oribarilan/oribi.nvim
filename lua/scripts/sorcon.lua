@@ -9,6 +9,65 @@ local function format_author(name)
   return name
 end
 
+-- Show PR comments with virtual text
+local function show_pr_comments(pr, bufnr)
+  local threads = backend.get_threads(pr)
+  if not threads or #threads == 0 then return end
+
+  -- Create namespace for comment extmarks
+  local ns_id = vim.api.nvim_create_namespace('sorcon_comments')
+
+  -- Add highlight groups
+  vim.api.nvim_set_hl(0, 'SorconCommentIndicator', { fg = '#61afef', bold = true })
+  vim.api.nvim_set_hl(0, 'SorconCommentAuthor', { fg = '#98c379', bold = true })
+  vim.api.nvim_set_hl(0, 'SorconCommentDate', { fg = '#888888', italic = true })
+  vim.api.nvim_set_hl(0, 'SorconCommentState', { fg = '#d19a66', bold = true })
+
+  -- Store thread data globally for access in toggle function
+  _G.sorcon_thread_data = _G.sorcon_thread_data or {}
+  _G.sorcon_thread_data[bufnr] = {}
+  
+  -- Store floating window state
+  _G.sorcon_float_wins = _G.sorcon_float_wins or {}
+
+  -- Add comment thread indicators and hover handlers
+  for _, thread in ipairs(threads) do
+    local line_num = thread.threadContext.rightFileStart.line - 1  -- Convert to 0-based
+    
+    -- Store thread data
+    _G.sorcon_thread_data[bufnr][line_num] = thread
+    
+    -- Create the metadata line
+    local comment_count = #thread.comments
+    local latest_comment = thread.comments[#thread.comments]
+    local metadata = string.format(
+      "💬 %d message%s | Last: @%s | State: %s",
+      comment_count,
+      comment_count > 1 and "s" or "",
+      format_author(latest_comment.author.displayName),
+      thread.status or "Active"
+    )
+    
+    -- Create extmark with metadata
+    vim.api.nvim_buf_set_extmark(bufnr, ns_id, line_num, 0, {
+      virt_text = {
+        { metadata, "SorconCommentIndicator" }
+      },
+      virt_text_pos = "overlay",
+      hl_mode = "combine"
+    })
+  end
+
+  -- Clean up when buffer is unloaded
+  vim.api.nvim_create_autocmd('BufUnload', {
+    buffer = bufnr,
+    callback = function()
+      vim.api.nvim_buf_clear_namespace(bufnr, ns_id, 0, -1)
+    end,
+    once = true
+  })
+end
+
 -- Show diff for first changed file
 local function show_pr_diff(pr)
   local file_info = backend.fetch_first_change(pr)
@@ -40,7 +99,11 @@ local function show_pr_diff(pr)
   
   -- Open diff view
   vim.cmd('tabnew ' .. tmp_main)
+  local main_bufnr = vim.api.nvim_get_current_buf()
   vim.cmd('vertical diffsplit ' .. tmp_pr)
+  
+  -- Show comments
+  show_pr_comments(pr, main_bufnr)
   
   -- Clean up temp files when buffers are closed
   vim.api.nvim_create_autocmd('BufUnload', {
@@ -102,10 +165,76 @@ local function pick_pr()
 end
 
 -- Define the command and mapping
+-- Toggle comment thread display
+local function toggle_thread()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local line = vim.api.nvim_win_get_cursor(0)[1] - 1
+  local thread = _G.sorcon_thread_data[bufnr] and _G.sorcon_thread_data[bufnr][line]
+  
+  if not thread then return end
+  
+  -- Close existing float window if it exists
+  if _G.sorcon_float_wins[line] then
+    local win_valid = vim.api.nvim_win_is_valid(_G.sorcon_float_wins[line])
+    if win_valid then
+      vim.api.nvim_win_close(_G.sorcon_float_wins[line], true)
+      _G.sorcon_float_wins[line] = nil
+      return
+    end
+  end
+
+  local content = {}
+  
+  -- Format each comment in the thread
+  for _, comment in ipairs(thread.comments) do
+    local author = format_author(comment.author.displayName)
+    local date = comment.createdDate:sub(1, 10)
+    
+    table.insert(content, string.format("@%s", author))
+    table.insert(content, string.format("Posted on %s", date))
+    table.insert(content, "")
+    
+    -- Add comment content, preserving line breaks
+    for _, line in ipairs(vim.split(comment.content, "\n", { plain = true })) do
+      table.insert(content, line)
+    end
+    table.insert(content, string.rep("─", 30))
+  end
+  
+  -- Remove last separator
+  if #content > 0 then
+    table.remove(content)
+  end
+
+  -- Show floating window with comments
+  local popup_bufnr, winnr = vim.lsp.util.open_floating_preview(content, 'markdown', {
+    border = 'rounded',
+    max_width = 80,
+    max_height = 20,
+    focus = false
+  })
+
+  _G.sorcon_float_wins[line] = winnr
+
+  -- Add highlights to the popup
+  for i, line in ipairs(content) do
+    if line:match("^@") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'SorconCommentAuthor', i-1, 0, -1)
+    elseif line:match("^Posted on") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'SorconCommentDate', i-1, 0, -1)
+    end
+  end
+end
+
 vim.api.nvim_create_user_command('AzurePRs', function(_)
   pick_pr()
 end, {})
 
+-- Key mappings
 vim.keymap.set('n', '<leader>pr', function()
   pick_pr()
 end, { desc = 'List Azure PRs' })
+
+vim.keymap.set('n', '<leader>pc', function()
+  toggle_thread()
+end, { desc = 'Toggle PR comment thread' })
