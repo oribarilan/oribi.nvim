@@ -15,6 +15,11 @@ return {
       -- Also use this to disable builtin textobjects. See |MiniAi.config|.
       custom_textobjects = {
         f = MiniAi.gen_spec.treesitter { a = '@function.outer', i = '@function.inner' },
+        c = MiniAi.gen_spec.treesitter { a = '@comment.outer', i = '@comment.inner' },
+        -- default ones:
+        -- q for quotes
+        -- b for brackets
+        -- t for tags
       },
 
       -- Module mappings. Use `''` (empty string) to disable one.

@@ -16,6 +16,11 @@ return {
   },
   opts = {
     filesystem = {
+      filtered_items = {
+        visible = true, -- when true, they will just be hidden. When false, they will
+        hide_dotfiles = false, -- hide files and directories starting with a dot
+        hide_gitignored = false, -- hide files and directories that are ignored by git
+      },
       window = {
         mappings = {
           ['\\'] = 'close_window',
