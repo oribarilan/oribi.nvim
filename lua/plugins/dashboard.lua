@@ -49,7 +49,10 @@ return {
             icon_hl = '@variable',
             desc = 'Config',
             group = 'Label',
-            action = 'Telescope find_files cwd=',
+            action = function()
+              vim.cmd 'cd ~/.config/nvim' -- change global cwd
+              require('telescope.builtin').find_files { cwd = vim.fn.getcwd() }
+            end,
             key = 'c',
           },
           {
@@ -59,6 +62,17 @@ return {
             group = 'Label',
             action = 'edit ~/.zshrc',
             key = 'z',
+          },
+          {
+            icon = ' ',
+            icon_hl = '@variable',
+            desc = 'Port.Inference',
+            group = 'Label',
+            action = function()
+              vim.cmd 'cd ~/repos/mde/Port.Inference' -- change global cwd
+              require('telescope.builtin').find_files { cwd = vim.fn.getcwd() }
+            end,
+            key = 'i',
           },
         },
         packages = { enable = true },
