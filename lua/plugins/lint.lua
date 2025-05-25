@@ -1,3 +1,7 @@
+-- Managing tab/space indentation and linting in Neovim:
+-- a. treesitter - responsible for identifying indentation
+-- b. nvim - vim.options to define what happens in real time when you code
+-- c. formatters (e.g., conform) - for applying the indentation in practice after an explicit format command (on save, on keymap, on insert-exit event, etc.)
 return {
   {
     'stevearc/conform.nvim',
