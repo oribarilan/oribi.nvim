@@ -20,6 +20,7 @@ return {
         -- q for quotes
         -- b for brackets
         -- t for tags
+        -- a for argument
       },
 
       -- Module mappings. Use `''` (empty string) to disable one.

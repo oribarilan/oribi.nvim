@@ -215,7 +215,18 @@ return {
       --  - capabilities (table): Override fields in capabilities. Can be used to disable certain LSP features.
       --  - settings (table): Override the default settings passed when initializing the server.
       --        For example, to see the options for `lua_ls`, you could go to: https://luals.github.io/wiki/settings/
+      local util = require 'lspconfig.util'
       local servers = {
+        -- C# language server
+        omnisharp = {
+          cmd = { '~/.local/share/nvim/mason/bin/omnisharp' },
+          root_dir = util.root_pattern('*.sln', '*.csproj'),
+          enable_roslyn_analyzers = true,
+          organize_imports_on_format = true,
+          enable_import_completion = true,
+          enable_decompilation_support = true,
+          filetypes = { 'cs', 'vb', 'csproj', 'sln', 'slnx', 'props', 'csx', 'targets', 'tproj', 'slngen', 'fproj' },
+        },
         -- Pyright for type checking only
         pyright = {
           settings = {

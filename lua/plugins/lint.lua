@@ -27,6 +27,8 @@ return {
         json = { 'prettier' },
         yaml = { 'prettier' },
         markdown = { 'prettier' },
+        -- dotnet tool isntall -g dotnet-format
+        cs = { 'dotnet_format' },
       },
       formatters = {
         prettier = {
@@ -43,6 +45,16 @@ return {
         },
         stylua = {
           prepend_args = { '--indent-type', 'Spaces', '--indent-width', '2' },
+        },
+        ruff_format = {
+          command = 'ruff',
+          args = { 'format', '--stdin-filename', '%filepath', '-' },
+          stdin = true,
+        },
+        dotnet_format = {
+          command = 'dotnet',
+          args = { 'format', '--include', '$FILENAME' },
+          stdin = false,
         },
       },
     },
