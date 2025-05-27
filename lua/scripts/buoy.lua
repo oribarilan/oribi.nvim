@@ -99,6 +99,7 @@ local function switch_to_buffer(buf_number)
     end
     local buf = init_terminal_buffer(buf_number)
     vim.api.nvim_win_set_buf(state.floating.win, buf)
+    vim.cmd 'startinsert' -- Automatically switch to terminal mode
     update_window_title()
   end
 end
@@ -109,6 +110,7 @@ local function toggle_terminal()
     state.floating.win = result.win
     local buf = init_terminal_buffer(state.floating.current_buf)
     vim.api.nvim_win_set_buf(state.floating.win, buf)
+    vim.cmd 'startinsert' -- Automatically switch to terminal mode
   else
     vim.api.nvim_win_hide(state.floating.win)
   end
