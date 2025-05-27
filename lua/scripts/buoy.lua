@@ -132,6 +132,13 @@ end
 -- Terminal mode escape
 vim.keymap.set('t', '<esc><esc>', '<c-\\><c-n>')
 
+-- Close Buoy with Q in floating mode
+vim.keymap.set('n', 'Q', function()
+  if vim.api.nvim_get_current_win() == state.floating.win then
+    vim.api.nvim_win_hide(state.floating.win)
+  end
+end, { desc = 'Close Buoy window' })
+
 -- Toggle terminal
 vim.api.nvim_create_user_command('Buoy', toggle_terminal, {})
 vim.keymap.set('n', '<leader>bb', toggle_terminal, { desc = 'Toggle Buoy terminal' })
