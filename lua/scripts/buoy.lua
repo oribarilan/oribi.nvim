@@ -168,6 +168,10 @@ vim.keymap.set('n', '<leader>bk', kill_current_buffer, { desc = 'Kill current bu
 --[[ Autocommands ]]
 -- Function to show mode notification
 local function show_mode_notification()
+  if not vim.api.nvim_win_is_valid(state.floating.win) then
+    return -- Do not show notification if Buoy window is not visible
+  end
+
   local mode = vim.api.nvim_get_mode().mode
   local mode_str = mode:match '^t' and '[ TERM ]' or '[ NORM ]'
 
@@ -197,12 +201,19 @@ local function show_mode_notification()
   end, 2000) -- Close after 2 seconds
 end
 
+local buoy_visible = false
+
 vim.api.nvim_create_autocmd({ 'ModeChanged' }, {
   callback = function()
-    -- Only update title if we're in the Buoy window
-    if vim.api.nvim_get_current_win() == state.floating.win then
-      update_window_title()
-      show_mode_notification()
+    -- Only update title and show notification if Buoy window is visible and not just entered
+    if vim.api.nvim_win_is_valid(state.floating.win) and vim.api.nvim_get_current_win() == state.floating.win then
+      if buoy_visible then
+        update_window_title()
+        show_mode_notification()
+      end
+      buoy_visible = true
+    else
+      buoy_visible = false
     end
   end,
 })
