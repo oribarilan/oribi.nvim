@@ -134,8 +134,8 @@ end
 -- Terminal mode escape
 vim.keymap.set('t', '<esc><esc>', '<c-\\><c-n>')
 
--- Close Buoy with Q in floating mode
-vim.keymap.set('n', 'Q', function()
+-- Close Buoy with esc-esc in normal mode
+vim.keymap.set('n', '<esc><esc>', function()
   if vim.api.nvim_get_current_win() == state.floating.win then
     vim.api.nvim_win_hide(state.floating.win)
   end
