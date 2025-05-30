@@ -12,6 +12,11 @@ return {
     -- Set up the commands
     ezpr_be_ado.setup_commands()
     
+    -- Override EzprListPRs command to use the PR picker
+    vim.api.nvim_create_user_command("EzprListPRs", function()
+      ezpr_ui.show_pr_picker()
+    end, { desc = "List and select pull requests" })
+    
     -- Set up UI commands
     vim.api.nvim_create_user_command("EzprUI", function()
       ezpr_ui.toggle_layout()

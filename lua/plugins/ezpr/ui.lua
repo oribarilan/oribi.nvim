@@ -166,6 +166,107 @@ function M.select_discussion()
   M.jump_to_line_in_main(line)
 end
 
+-- Helper function to format author name
+local function format_author(name)
+  if #name > 15 then
+    return name:sub(1, 12) .. "..."
+  end
+  return name
+end
+
+-- Format PR for display in picker
+local function format_pr(pr)
+  local author = format_author(pr.createdBy and pr.createdBy.displayName or "Unknown")
+  return string.format('[%s]\t\t\t%s', author, pr.title or "No title")
+end
+
+-- Show PR picker using vim.ui.select
+function M.show_pr_picker()
+  -- Get the ADO backend directly
+  local ado_backend = require("plugins.ezpr.ezpr_be_ado")
+  
+  -- Try to get PRs from backend
+  local response = ado_backend.list_prs()
+  
+  if not response.success then
+    vim.notify("Failed to fetch PRs: " .. (response.error or "Unknown error"), vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Parse the JSON response
+  local prs_json = response.prs
+  if not prs_json then
+    vim.notify("No pull request data received", vim.log.levels.INFO)
+    return
+  end
+  
+  local success, prs = pcall(vim.json.decode, prs_json)
+  if not success or not prs or #prs == 0 then
+    vim.notify("No pull requests found", vim.log.levels.INFO)
+    return
+  end
+
+  local items = {}
+  local display_to_pr = {}
+
+  for _, pr in ipairs(prs) do
+    local display = format_pr(pr)
+    table.insert(items, display)
+    display_to_pr[display] = pr
+  end
+
+  -- Configure the picker
+  vim.ui.select(items, {
+    prompt = 'Select PR:',
+    format_item = function(display) return display end
+  }, function(choice)
+    if choice then
+      local selected_pr = display_to_pr[choice]
+      
+      -- Show more detailed information about the selected PR
+      local details = string.format(
+        '\nPR #%s: %s\nAuthor: %s\nCreated: %s\nSource: %s → %s\nURL: %s',
+        selected_pr.pullRequestId or selected_pr.id,
+        selected_pr.title,
+        selected_pr.createdBy and selected_pr.createdBy.displayName or "Unknown",
+        selected_pr.creationDate and selected_pr.creationDate:sub(1, 10) or "Unknown",
+        selected_pr.sourceRefName and selected_pr.sourceRefName:gsub('refs/heads/', '') or "Unknown",
+        selected_pr.targetRefName and selected_pr.targetRefName:gsub('refs/heads/', '') or "Unknown",
+        selected_pr.url or "No URL"
+      )
+      print(details)
+      
+      -- Store current PR for use in the layout
+      M.state.pr_data = selected_pr
+      
+      -- Open the layout if not already open
+      if not M.is_layout_open() then
+        M.create_layout()
+      end
+      
+      -- Load PR data into the layout
+      M.load_pr_data(selected_pr)
+    end
+  end)
+end
+
+-- Load PR data into the layout
+function M.load_pr_data(pr)
+  if not M.is_layout_open() then
+    return
+  end
+  
+  -- This will be enhanced to load actual PR data
+  -- For now, just update the state
+  M.state.pr_data = pr
+  
+  -- TODO: Load actual files and discussions from the PR
+  -- M.state.files_data = get_pr_files(pr)
+  -- M.state.discussions_data = get_pr_discussions(pr)
+  
+  vim.notify("PR loaded: " .. pr.title, vim.log.levels.INFO)
+end
+
 -- Load file content into main panel
 function M.load_file_content(content)
   if not M.state.main_buf or not vim.api.nvim_buf_is_valid(M.state.main_buf) then
