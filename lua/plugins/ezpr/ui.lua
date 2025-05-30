@@ -580,18 +580,7 @@ function M.show_pr_picker()
     if choice then
       local selected_pr = display_to_pr[choice]
       
-      -- Show more detailed information about the selected PR
-      local details = string.format(
-        '\nPR #%s: %s\nAuthor: %s\nCreated: %s\nSource: %s → %s\nURL: %s',
-        selected_pr.pullRequestId or selected_pr.id,
-        selected_pr.title,
-        selected_pr.createdBy and selected_pr.createdBy.displayName or "Unknown",
-        selected_pr.creationDate and selected_pr.creationDate:sub(1, 10) or "Unknown",
-        selected_pr.sourceRefName and selected_pr.sourceRefName:gsub('refs/heads/', '') or "Unknown",
-        selected_pr.targetRefName and selected_pr.targetRefName:gsub('refs/heads/', '') or "Unknown",
-        selected_pr.url or "No URL"
-      )
-      print(details)
+      -- PR selected, no notification needed for normal operation
       
       -- Store current PR for use in the layout
       M.state.pr_data = selected_pr
@@ -669,6 +658,12 @@ function M.load_pr_files(pr)
   vim.api.nvim_buf_set_option(M.state.files_buf, 'modifiable', true)
   vim.api.nvim_buf_set_lines(M.state.files_buf, 0, -1, false, file_lines)
   vim.api.nvim_buf_set_option(M.state.files_buf, 'modifiable', false)
+  
+  -- Set focus to files window after PR is loaded
+  if M.state.files_win and vim.api.nvim_win_is_valid(M.state.files_win) then
+    vim.api.nvim_set_current_win(M.state.files_win)
+    M.state.current_focus = 'files'
+  end
 end
 
 -- Load file content into main panel

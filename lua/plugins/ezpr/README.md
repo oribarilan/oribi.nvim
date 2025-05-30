@@ -81,7 +81,7 @@ EZPR is now a fully functional pull request review tool with Azure DevOps backen
 ## TODO
 
 1. **Multiple discussions on the same line**: UI should clearly show multiple items (both virtual text and the multiple discussions)
-2. **Auto-focus file picker**: When ezpr UI kicks in, start with a focus on the file picker
+2. ✅ **Auto-focus file picker**: When ezpr UI kicks in, start with a focus on the file picker
 3. **Comment on text**: Add ability to comment on selected text (in visual mode)
 4. **Reply to a discussion**: Implement functionality to reply to existing discussions
 5. **Change state of a discussion**: Add ability to resolve/unresolve discussions
