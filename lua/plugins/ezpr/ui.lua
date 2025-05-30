@@ -718,43 +718,101 @@ function M.add_discussion_indicators(discussions)
   -- Create highlight groups if they don't exist
   vim.api.nvim_set_hl(0, 'EzprDiscussionIndicator', { fg = '#61afef', bold = true })
   vim.api.nvim_set_hl(0, 'EzprDiscussionAuthor', { fg = '#98c379', bold = true })
+  vim.api.nvim_set_hl(0, 'EzprDiscussionHighlight', { bg = '#3e4451', fg = '#61afef' })
   
   -- Store discussion data by line number for quick lookup
   M.state.discussions_by_line = {}
   
-  -- Add indicators for each discussion
+  -- Group discussions by line number first
+  local discussions_by_line_temp = {}
   for _, discussion in ipairs(discussions) do
     if discussion.context and discussion.context.line_number then
-      local line_num = discussion.context.line_number - 1  -- Convert to 0-based
-      local comment_count = discussion.comments and #discussion.comments or 0
-      local author = "Unknown"
-      
-      if discussion.comments and #discussion.comments > 0 and discussion.comments[1].author then
-        local author_name = discussion.comments[1].author.name or "Unknown"
-        if #author_name > 15 then
-          author = author_name:sub(1, 12) .. "..."
-        else
-          author = author_name
-        end
+      local line_num = discussion.context.line_number
+      if not discussions_by_line_temp[line_num] then
+        discussions_by_line_temp[line_num] = {}
       end
+      table.insert(discussions_by_line_temp[line_num], discussion)
+    end
+  end
+  
+  -- Add indicators for each line that has discussions
+  local target_buf = M.state.pr_buf or M.state.main_buf
+  if target_buf and vim.api.nvim_buf_is_valid(target_buf) then
+    local buf_line_count = vim.api.nvim_buf_line_count(target_buf)
+    
+    for line_number, line_discussions in pairs(discussions_by_line_temp) do
+      local line_num = line_number - 1  -- Convert to 0-based
       
-      -- Create virtual text
-      local virt_text = string.format("💬 %d comment%s by %s",
-        comment_count, comment_count == 1 and "" or "s", author)
-      
-      -- Add virtual text to the relevant buffer (PR buffer for side-by-side, main buffer for single file)
-      local target_buf = M.state.pr_buf or M.state.main_buf
-      if target_buf and vim.api.nvim_buf_is_valid(target_buf) then
-        local buf_line_count = vim.api.nvim_buf_line_count(target_buf)
-        if line_num < buf_line_count then
-          vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
-            virt_text = {{ virt_text, "EzprDiscussionIndicator" }},
-            virt_text_pos = "eol"
-          })
+      if line_num < buf_line_count then
+        -- Get the actual line content
+        local line_content = vim.api.nvim_buf_get_lines(target_buf, line_num, line_num + 1, false)[1] or ""
+        local line_length = #line_content
+        
+        -- Add highlights for each discussion's text range
+        for _, discussion in ipairs(line_discussions) do
+          local start_col = discussion.context.start_column or 0
+          local end_col = discussion.context.end_column
           
-          -- Store discussion data for quick lookup
-          M.state.discussions_by_line[line_num + 1] = discussion  -- Store with 1-based line numbers
+          -- If we have character position information, highlight the specific text range
+          if start_col and end_col and end_col > start_col then
+            -- Validate and clamp column positions to line bounds
+            start_col = math.max(0, math.min(start_col, line_length))
+            end_col = math.max(start_col, math.min(end_col, line_length))
+            
+            -- Only add highlights if we have a valid range
+            if start_col < line_length and end_col > start_col then
+              -- Highlight the specific text range
+              vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, start_col, {
+                end_col = end_col,
+                hl_group = "EzprDiscussionHighlight"
+              })
+            end
+          else
+            -- Fallback: highlight entire line if no specific range available
+            if line_length > 0 then
+              vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
+                end_col = line_length,
+                hl_group = "EzprDiscussionHighlight"
+              })
+            end
+          end
         end
+        
+        -- Add single virtual text at end of line showing total discussions
+        local total_comments = 0
+        local authors = {}
+        for _, discussion in ipairs(line_discussions) do
+          local comment_count = discussion.comments and #discussion.comments or 0
+          total_comments = total_comments + comment_count
+          
+          -- Collect unique authors
+          if discussion.comments and #discussion.comments > 0 and discussion.comments[1].author then
+            local author_name = discussion.comments[1].author.name or "Unknown"
+            authors[author_name] = true
+          end
+        end
+        
+        -- Format the virtual text
+        local author_list = {}
+        for author, _ in pairs(authors) do
+          local short_author = #author > 10 and author:sub(1, 7) .. "..." or author
+          table.insert(author_list, short_author)
+        end
+        local author_text = table.concat(author_list, ", ")
+        if #author_list > 2 then
+          author_text = author_list[1] .. " and " .. (#author_list - 1) .. " others"
+        end
+        
+        local virt_text = string.format("💬 %d comment%s by %s",
+          total_comments, total_comments == 1 and "" or "s", author_text)
+        
+        vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
+          virt_text = {{ virt_text, "EzprDiscussionIndicator" }},
+          virt_text_pos = "eol"
+        })
+        
+        -- Store discussion data for quick lookup by line
+        M.state.discussions_by_line[line_number] = line_discussions
       end
     end
   end
@@ -778,40 +836,56 @@ end
 -- Open discussion at current cursor position
 function M.open_discussion_at_cursor()
   local cursor_line = vim.api.nvim_win_get_cursor(0)[1]  -- 1-based line number
-  local discussion = M.state.discussions_by_line and M.state.discussions_by_line[cursor_line]
   
-  if not discussion then
+  local discussions_on_line = M.state.discussions_by_line and M.state.discussions_by_line[cursor_line]
+  
+  if not discussions_on_line or #discussions_on_line == 0 then
     vim.notify("No discussion found at current line", vim.log.levels.WARN)
     return
   end
   
-  M.show_discussion_popup(discussion)
+  -- Show all discussions on this line
+  M.show_line_discussions_popup(discussions_on_line, cursor_line)
 end
 
--- Show discussion in a popup window
-function M.show_discussion_popup(discussion)
+-- Show all discussions for a line in a popup window
+function M.show_line_discussions_popup(discussions, line_number)
   local content = {}
   
-  -- Format each comment in the discussion
-  for _, comment in ipairs(discussion.comments or {}) do
-    local author = comment.author and comment.author.name or "Unknown"
-    local date = comment.created_at and comment.created_at:sub(1, 10) or "Unknown date"
+  table.insert(content, string.format("=== Line %d Discussions ===", line_number))
+  table.insert(content, "")
+  
+  -- Format each discussion and its comments
+  for i, discussion in ipairs(discussions) do
+    table.insert(content, string.format("Discussion %d:", i))
     
-    table.insert(content, string.format("@%s", author))
-    table.insert(content, string.format("Posted on %s", date))
+    -- Show discussion context if available
+    if discussion.context and discussion.context.start_column and discussion.context.end_column then
+      table.insert(content, string.format("  Range: columns %d-%d", discussion.context.start_column, discussion.context.end_column))
+    end
     table.insert(content, "")
     
-    -- Add comment content, preserving line breaks
-    local comment_text = comment.content or "No content"
-    for _, line in ipairs(vim.split(comment_text, "\n", { plain = true })) do
-      table.insert(content, line)
+    -- Format each comment in the discussion
+    for _, comment in ipairs(discussion.comments or {}) do
+      local author = comment.author and comment.author.name or "Unknown"
+      local date = comment.created_at and comment.created_at:sub(1, 10) or "Unknown date"
+      
+      table.insert(content, string.format("  @%s", author))
+      table.insert(content, string.format("  Posted on %s", date))
+      table.insert(content, "")
+      
+      -- Add comment content, preserving line breaks and indenting
+      local comment_text = comment.content or "No content"
+      for _, line in ipairs(vim.split(comment_text, "\n", { plain = true })) do
+        table.insert(content, "  " .. line)
+      end
+      table.insert(content, "")
     end
-    table.insert(content, string.rep("─", 30))
-  end
-  
-  -- Remove last separator
-  if #content > 0 then
-    table.remove(content)
+    
+    if i < #discussions then
+      table.insert(content, string.rep("─", 50))
+      table.insert(content, "")
+    end
   end
   
   table.insert(content, "")
@@ -820,8 +894,8 @@ function M.show_discussion_popup(discussion)
   -- Show floating window with comments
   local popup_bufnr, winnr = vim.lsp.util.open_floating_preview(content, 'markdown', {
     border = 'rounded',
-    max_width = 80,
-    max_height = 20,
+    max_width = 90,
+    max_height = 25,
     focus = true
   })
   
@@ -832,17 +906,26 @@ function M.show_discussion_popup(discussion)
     end
   end
   
-  vim.keymap.set('n', 'q', close_float, { buffer = popup_bufnr, desc = 'Close discussion' })
-  vim.keymap.set('n', '<Esc>', close_float, { buffer = popup_bufnr, desc = 'Close discussion' })
+  vim.keymap.set('n', 'q', close_float, { buffer = popup_bufnr, desc = 'Close discussions' })
+  vim.keymap.set('n', '<Esc>', close_float, { buffer = popup_bufnr, desc = 'Close discussions' })
 
   -- Add highlights to the popup
   for i, line in ipairs(content) do
-    if line:match("^@") then
+    if line:match("^=== .* ===$") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Title', i-1, 0, -1)
+    elseif line:match("^Discussion %d+:") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'EzprDiscussionIndicator', i-1, 0, -1)
+    elseif line:match("^  @") then
       vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'EzprDiscussionAuthor', i-1, 0, -1)
-    elseif line:match("^Posted on") then
+    elseif line:match("^  Posted on") or line:match("^  Range:") then
       vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Comment', i-1, 0, -1)
     end
   end
+end
+
+-- Show discussion in a popup window (kept for compatibility)
+function M.show_discussion_popup(discussion)
+  M.show_line_discussions_popup({discussion}, discussion.context and discussion.context.line_number or 1)
 end
 
 return M

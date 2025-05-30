@@ -1,6 +1,6 @@
-# EZPR UI Layout
+# EZPR - Easy Pull Request Review for Neovim
 
-A simple three-panel layout for reviewing pull requests in Neovim.
+A Neovim plugin for reviewing Azure DevOps pull requests directly in your editor with a three-panel layout.
 
 ## Layout Structure
 
@@ -30,6 +30,10 @@ The layout creates normal Neovim windows and buffers, so you can use your existi
 
 ## Commands
 
+### Pull Request Review
+- `:EzprListPRs` - List all pull requests and select one to review
+- `:EzprOpenDiscussion` - Open all discussions at current cursor line
+
 ### Layout Management
 - `:EzprUI` - Toggle the UI layout on/off
 - `:EzprOpen` - Open the UI layout
@@ -42,35 +46,49 @@ The layout creates normal Neovim windows and buffers, so you can use your existi
 ## Panels Description
 
 ### Main Window (Left)
-- Shows diff or content of the currently selected file
+- Shows side-by-side diff view of selected file (original vs PR version)
+- For new files, shows single file view with PR content
+- Highlights specific text ranges that have discussions
+- Virtual text indicators show discussion summaries at end of lines
 - Updates when a file is selected from the files panel
-- Cursor jumps to relevant lines when discussions are selected
 
 ### Discussions Panel (Top Right)
-- Shows all discussions for the currently focused file
-- Each discussion shows line number and preview
+- Shows all discussions for the currently selected file
+- Each discussion shows line number, comment count, and author
 - Selecting a discussion jumps to that line in the main window
 
 ### Files Panel (Bottom Right)
-- Shows list of files in the pull request
-- Each file shows discussion count in parentheses
+- Shows list of all changed files in the pull request
+- Files show change type indicators (+, ~, -)
 - Selecting a file loads it into the main window and updates discussions
 
 ## Current State
 
-This is the initial layout implementation with placeholder content. The layout structure and navigation are fully functional, but integration with actual PR data is not yet implemented.
+EZPR is now a fully functional pull request review tool with Azure DevOps backend integration.
 
 ### What Works
-- ✅ Three-panel layout creation
-- ✅ Panel navigation with Ctrl+h/j/k/l
-- ✅ Within-panel navigation with j/k
-- ✅ Window management and cleanup
-- ✅ Placeholder content for testing
+- ✅ Three-panel layout creation and management
+- ✅ Azure DevOps authentication via Azure CLI
+- ✅ Pull request listing and selection
+- ✅ File diff loading (side-by-side and single file views)
+- ✅ Discussion fetching and display
+- ✅ Text range highlighting for discussions
+- ✅ Virtual text indicators for discussion locations
+- ✅ Discussion popup windows with full comment threads
+- ✅ Panel navigation and window management
+- ✅ Line jumping from discussions to code
 
-### Next Steps
-- [ ] Integration with PR data from backends
-- [ ] Actual file diff loading
-- [ ] Discussion parsing and display
-- [ ] Line jumping functionality
-- [ ] Syntax highlighting
-- [ ] Discussion creation/reply interface
+## TODO
+
+1. **Multiple discussions on the same line**: UI should clearly show multiple items (both virtual text and the multiple discussions)
+2. **Auto-focus file picker**: When ezpr UI kicks in, start with a focus on the file picker
+3. **Comment on text**: Add ability to comment on selected text (in visual mode)
+4. **Reply to a discussion**: Implement functionality to reply to existing discussions
+5. **Change state of a discussion**: Add ability to resolve/unresolve discussions
+6. **Panel width optimization**: Adjust panels to be about 20% of total width
+
+## Setup Requirements
+
+- Azure CLI installed and authenticated
+- Access to Azure DevOps repositories
+- Git repository with Azure DevOps remote
