@@ -1196,24 +1196,20 @@ function M.create_comment_with_selection()
     end
   end
   
-  -- Get visual selection
-  local mode = vim.fn.mode()
-  local start_pos, end_pos
+  -- Get visual selection using the last visual selection marks
+  local start_pos = vim.fn.getpos("'<")
+  local end_pos = vim.fn.getpos("'>")
   
-  if mode == 'v' or mode == 'V' or mode == '\22' then
-    -- Currently in visual mode
-    start_pos = vim.fn.getpos("'<")
-    end_pos = vim.fn.getpos("'>")
-  else
-    -- Not in visual mode, check if there's a previous selection
-    start_pos = vim.fn.getpos("'<")
-    end_pos = vim.fn.getpos("'>")
-    
-    -- Validate that we have a meaningful selection
-    if start_pos[2] == 0 or end_pos[2] == 0 or (start_pos[2] == end_pos[2] and start_pos[3] == end_pos[3]) then
-      vim.notify("No text selected. Please highlight the code you want to comment on", vim.log.levels.WARN)
-      return
-    end
+  -- Validate that we have a meaningful selection
+  if start_pos[2] == 0 or end_pos[2] == 0 then
+    vim.notify("No text selected. Please highlight the code you want to comment on", vim.log.levels.WARN)
+    return
+  end
+  
+  -- Check if it's just a cursor position (no actual selection)
+  if start_pos[2] == end_pos[2] and start_pos[3] == end_pos[3] then
+    vim.notify("No text range selected. Please select a text range to comment on", vim.log.levels.WARN)
+    return
   end
   
   local start_line = start_pos[2]

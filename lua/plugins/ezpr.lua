@@ -48,8 +48,10 @@ return {
     -- Main PR operations
     vim.keymap.set('n', '<leader>pp', '<cmd>EzprListPRs<cr>', vim.tbl_extend('force', opts, { desc = 'List pull requests' }))
     vim.keymap.set('n', '<leader>pd', '<cmd>EzprOpenDiscussion<cr>', vim.tbl_extend('force', opts, { desc = 'Open discussion at cursor' }))
-    vim.keymap.set('v', '<leader>pc', '<cmd>EzprCreateComment<cr>', vim.tbl_extend('force', opts, { desc = 'Create comment on selection' }))
-    vim.keymap.set('n', '<leader>pc', '<cmd>EzprCreateComment<cr>', vim.tbl_extend('force', opts, { desc = 'Create comment on selection' }))
+    -- Visual mode: <esc> exits visual mode but preserves selection marks ('< and '>)
+    -- This ensures the selection coordinates are captured correctly by the comment function
+    vim.keymap.set('v', '<leader>pc', '<esc><cmd>EzprCommentSelected<cr>', vim.tbl_extend('force', opts, { desc = 'Create comment on selection' }))
+    vim.keymap.set('n', '<leader>pc', '<cmd>EzprCommentSelected<cr>', vim.tbl_extend('force', opts, { desc = 'Create comment on selection' }))
     
     -- Plugin initialized silently
   end,
@@ -67,7 +69,7 @@ return {
     "EzprClose",
     "EzprTestUI",
     "EzprDemoSelection",
-    "EzprCreateComment",
+    "EzprCommentSelected",
     "EzprReplyToDiscussion"
   },
 }

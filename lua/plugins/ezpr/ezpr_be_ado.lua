@@ -436,7 +436,7 @@ function M.setup_commands()
   })
 
   -- Command to create a comment on the current PR using highlighted text
-  vim.api.nvim_create_user_command('EzprCreateComment', function(opts)
+  vim.api.nvim_create_user_command('EzprCommentSelected', function(opts)
     -- This command will be handled by the UI module
     local ezpr_ui = require("plugins.ezpr.ui")
     
