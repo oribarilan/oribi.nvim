@@ -4,6 +4,9 @@ return {
   version = false, -- Never set this value to "*"! Never!
   opts = {
     provider = 'copilot',
+    copilot = {
+      model = 'claude-sonnet-4',
+    },
   },
   build = 'make',
   dependencies = {
