@@ -1033,6 +1033,7 @@ function M.show_line_discussions_popup(discussions, line_number)
   local content = {}
   
   table.insert(content, string.format("=== Line %d Discussions ===", line_number))
+  table.insert(content, "Press 'q' to close this window")
   table.insert(content, "")
   
   -- Format each discussion and its comments
@@ -1088,7 +1089,7 @@ function M.show_line_discussions_popup(discussions, line_number)
   end
   
   table.insert(content, "")
-  table.insert(content, "Press 'q' or ESC to close")
+  table.insert(content, "Press 'q' to close")
 
   -- Show floating window with comments
   local popup_bufnr, winnr = vim.lsp.util.open_floating_preview(content, 'markdown', {
@@ -1098,6 +1099,33 @@ function M.show_line_discussions_popup(discussions, line_number)
     focus = true
   })
   
+  -- Ensure the floating window is focused and set cursor position
+  if vim.api.nvim_win_is_valid(winnr) then
+    -- Explicitly set focus to the floating window
+    vim.api.nvim_set_current_win(winnr)
+    
+    -- Find the first line that contains actual discussion content (skip headers and hint)
+    local target_line = 1
+    for i, line in ipairs(content) do
+      if line:match("^Discussion %d+:") then
+        -- Look for the first comment content after this discussion header
+        for j = i + 1, #content do
+          if content[j]:match("^  @") then
+            target_line = j + 3  -- Move to comment content (skip @author and date lines)
+            break
+          end
+        end
+        break
+      end
+    end
+    
+    -- Ensure target_line is within bounds
+    target_line = math.min(target_line, #content)
+    target_line = math.max(target_line, 1)
+    
+    vim.api.nvim_win_set_cursor(winnr, {target_line, 0})
+  end
+  
   -- Add keybindings to close the floating window
   local function close_float()
     if vim.api.nvim_win_is_valid(winnr) then
@@ -1106,12 +1134,13 @@ function M.show_line_discussions_popup(discussions, line_number)
   end
   
   vim.keymap.set('n', 'q', close_float, { buffer = popup_bufnr, desc = 'Close discussions' })
-  vim.keymap.set('n', '<Esc>', close_float, { buffer = popup_bufnr, desc = 'Close discussions' })
 
   -- Add highlights to the popup
   for i, line in ipairs(content) do
     if line:match("^=== .* ===$") then
       vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Title', i-1, 0, -1)
+    elseif line:match("^Press 'q'") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'WarningMsg', i-1, 0, -1)
     elseif line:match("^Discussion %d+:") then
       vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'EzprDiscussionIndicator', i-1, 0, -1)
     elseif line:match("^  @") then
