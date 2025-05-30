@@ -102,6 +102,9 @@ end
 
 -- Close the layout and clean up
 function M.close_layout()
+  -- Clean up diff buffers first
+  M.cleanup_existing_diff()
+  
   -- Close windows if they exist and are valid
   if M.state.discussions_win and vim.api.nvim_win_is_valid(M.state.discussions_win) then
     vim.api.nvim_win_close(M.state.discussions_win, true)
@@ -129,6 +132,9 @@ function M.close_layout()
   M.state.discussions_buf = nil
   M.state.files_buf = nil
   M.state.current_focus = 'main'
+  M.state.original_buf = nil
+  M.state.pr_buf = nil
+  M.state.temp_files = nil
 end
 
 -- Setup buffer-specific keymaps for Enter key selection only
@@ -209,21 +215,31 @@ function M.load_selected_file_content(file)
   
   -- If file doesn't exist in target branch, it's a new file
   if original_content == "" and file.changeType == "add" then
-    original_content = ""
+    -- For new files, just show the PR content without diff
+    M.create_single_file_view(pr_content, file)
+  else
+    -- Create side-by-side diff view
+    M.create_side_by_side_diff(original_content, pr_content, file)
   end
-  
-  -- Create side-by-side diff view
-  M.create_side_by_side_diff(original_content, pr_content, file)
 end
 
 -- Create side-by-side diff view in the main window area
 function M.create_side_by_side_diff(original_content, pr_content, file)
+  -- Clean up existing diff buffers and temp files first
+  M.cleanup_existing_diff()
+  
+  -- Re-check main window validity after cleanup
   if not M.state.main_win or not vim.api.nvim_win_is_valid(M.state.main_win) then
+    vim.notify("Main window is not valid, cannot create diff view", vim.log.levels.ERROR)
     return
   end
   
   -- Focus the main window
-  vim.api.nvim_set_current_win(M.state.main_win)
+  local success = pcall(vim.api.nvim_set_current_win, M.state.main_win)
+  if not success then
+    vim.notify("Failed to focus main window", vim.log.levels.ERROR)
+    return
+  end
   
   -- Create temporary files for the diff
   local tmp_original = os.tmpname()
@@ -292,6 +308,115 @@ function M.create_side_by_side_diff(original_content, pr_content, file)
   })
   
   vim.notify("Loaded side-by-side diff: " .. filename, vim.log.levels.INFO)
+end
+
+-- Create single file view for new files
+function M.create_single_file_view(content, file)
+  -- Clean up existing diff buffers and temp files first
+  M.cleanup_existing_diff()
+  
+  -- Re-check main window validity after cleanup
+  if not M.state.main_win or not vim.api.nvim_win_is_valid(M.state.main_win) then
+    vim.notify("Main window is not valid, cannot create file view", vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Focus the main window
+  local success = pcall(vim.api.nvim_set_current_win, M.state.main_win)
+  if not success then
+    vim.notify("Failed to focus main window", vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Create a temporary file for the content
+  local tmp_file = os.tmpname()
+  
+  -- Write content to temp file
+  local f = io.open(tmp_file, 'w')
+  if f then
+    f:write(content)
+    f:close()
+  end
+  
+  -- Get filename for display
+  local filename = file.path:match("([^/]+)$") or file.path
+  local extension = filename:match("%.([^%.]+)$") or ""
+  
+  -- Load the file in the main window
+  vim.cmd('edit ' .. tmp_file)
+  local file_buf = vim.api.nvim_get_current_buf()
+  
+  -- Set buffer name and options
+  vim.api.nvim_buf_set_name(file_buf, '[EZPR] ' .. filename .. ' (new file)')
+  if extension ~= "" then
+    vim.api.nvim_buf_set_option(file_buf, 'filetype', extension)
+  end
+  vim.api.nvim_buf_set_option(file_buf, 'modifiable', false)
+  
+  -- Update state
+  M.state.main_buf = file_buf
+  M.state.temp_files = {tmp_file}
+  
+  -- Clean up temp file when buffer is closed
+  vim.api.nvim_create_autocmd('BufUnload', {
+    pattern = tmp_file,
+    callback = function()
+      if M.state.temp_files then
+        for _, tmp in ipairs(M.state.temp_files) do
+          os.remove(tmp)
+        end
+        M.state.temp_files = nil
+      end
+    end,
+    once = true
+  })
+  
+  vim.notify("Loaded new file: " .. filename, vim.log.levels.INFO)
+end
+
+-- Clean up existing diff buffers and temporary files
+function M.cleanup_existing_diff()
+  -- Clean up previous temp files
+  if M.state.temp_files then
+    for _, tmp_file in ipairs(M.state.temp_files) do
+      pcall(os.remove, tmp_file)
+    end
+    M.state.temp_files = nil
+  end
+  
+  -- Reset diff mode if main window is valid
+  if M.state.main_win and vim.api.nvim_win_is_valid(M.state.main_win) then
+    pcall(vim.api.nvim_set_current_win, M.state.main_win)
+    if pcall(vim.api.nvim_win_get_option, M.state.main_win, 'diff') then
+      pcall(vim.cmd, 'diffoff!')
+    end
+  end
+  
+  -- Close any additional split windows that might have been created for diff
+  local current_tabpage = vim.api.nvim_get_current_tabpage()
+  local all_windows = vim.api.nvim_tabpage_list_wins(current_tabpage)
+  
+  for _, win in ipairs(all_windows) do
+    -- Only close windows that are not part of our main layout
+    if win ~= M.state.main_win and
+       win ~= M.state.discussions_win and
+       win ~= M.state.files_win and
+       vim.api.nvim_win_is_valid(win) then
+      pcall(vim.api.nvim_win_close, win, true)
+    end
+  end
+  
+  -- Delete previous diff buffers if they exist and are still valid
+  if M.state.original_buf and vim.api.nvim_buf_is_valid(M.state.original_buf) then
+    pcall(vim.api.nvim_buf_delete, M.state.original_buf, { force = true })
+  end
+  if M.state.pr_buf and vim.api.nvim_buf_is_valid(M.state.pr_buf) and M.state.pr_buf ~= M.state.main_buf then
+    pcall(vim.api.nvim_buf_delete, M.state.pr_buf, { force = true })
+  end
+  
+  -- Clear diff buffer references
+  M.state.original_buf = nil
+  M.state.pr_buf = nil
 end
 
 
