@@ -36,6 +36,9 @@ local function show_pr_comments(pr, bufnr)
   -- Store floating window state
   _G.sorcon_float_wins = _G.sorcon_float_wins or {}
 
+  -- Collect threads with invalid line numbers
+  local invalid_threads = {}
+  
   -- Add comment thread indicators and hover handlers
   for _, thread in ipairs(threads) do
     local line_num = thread.threadContext.rightFileStart.line - 1  -- Convert to 0-based
@@ -43,7 +46,8 @@ local function show_pr_comments(pr, bufnr)
     -- Check if line number is valid for the current buffer
     local buf_line_count = vim.api.nvim_buf_line_count(bufnr)
     if line_num < 0 or line_num >= buf_line_count then
-      -- Skip this thread if line number is out of range
+      -- Collect invalid threads to display at bottom
+      table.insert(invalid_threads, thread)
       goto continue
     end
     
@@ -71,6 +75,48 @@ local function show_pr_comments(pr, bufnr)
     })
     
     ::continue::
+  end
+  
+  -- Display invalid threads at the bottom of the buffer
+  if #invalid_threads > 0 then
+    local buf_line_count = vim.api.nvim_buf_line_count(bufnr)
+    local bottom_line = buf_line_count - 1  -- 0-based
+    
+    -- Add a separator line
+    vim.api.nvim_buf_set_extmark(bufnr, ns_id, bottom_line, 0, {
+      virt_text = {
+        { string.format("─── %d comment thread%s with invalid line numbers ───",
+          #invalid_threads, #invalid_threads > 1 and "s" or ""), "SorconCommentDate" }
+      },
+      virt_text_pos = "eol"
+    })
+    
+    -- Display each invalid thread
+    for i, thread in ipairs(invalid_threads) do
+      local original_line = thread.threadContext.rightFileStart.line
+      local comment_count = #thread.comments
+      local latest_comment = thread.comments[#thread.comments]
+      local metadata = string.format(
+        "💬 Line %d: %d message%s | Last: @%s | State: %s",
+        original_line,
+        comment_count,
+        comment_count > 1 and "s" or "",
+        format_author(latest_comment.author.displayName),
+        thread.status or "Active"
+      )
+      
+      -- Store thread data using a special key for invalid threads
+      local invalid_key = string.format("invalid_%d", i)
+      _G.sorcon_thread_data[bufnr][invalid_key] = thread
+      
+      -- Create extmark at bottom
+      vim.api.nvim_buf_set_extmark(bufnr, ns_id, bottom_line, 0, {
+        virt_text = {
+          { metadata, "SorconCommentIndicator" }
+        },
+        virt_text_pos = "eol"
+      })
+    end
   end
 
   -- Clean up when buffer is unloaded
@@ -209,15 +255,16 @@ local function toggle_thread()
   
   -- Format each comment in the thread
   for _, comment in ipairs(thread.comments) do
-    local author = format_author(comment.author.displayName)
-    local date = comment.createdDate:sub(1, 10)
+    local author = format_author(comment.author and comment.author.displayName or "Unknown")
+    local date = comment.createdDate and comment.createdDate:sub(1, 10) or "Unknown date"
     
     table.insert(content, string.format("@%s", author))
     table.insert(content, string.format("Posted on %s", date))
     table.insert(content, "")
     
     -- Add comment content, preserving line breaks
-    for _, line in ipairs(vim.split(comment.content, "\n", { plain = true })) do
+    local comment_text = comment.content or "No content"
+    for _, line in ipairs(vim.split(comment_text, "\n", { plain = true })) do
       table.insert(content, line)
     end
     table.insert(content, string.rep("─", 30))
