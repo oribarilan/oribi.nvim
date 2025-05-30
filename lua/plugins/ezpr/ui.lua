@@ -1024,10 +1024,163 @@ function M.open_discussion_at_cursor()
     relevant_discussions = discussions_on_line
   end
   
-  -- Show relevant discussions
-  M.show_line_discussions_popup(relevant_discussions, cursor_line)
+  -- If there are multiple discussions, show a picker to select which one to open
+  if #relevant_discussions > 1 then
+    M.show_discussion_picker(relevant_discussions, cursor_line)
+  elseif #relevant_discussions == 1 then
+    -- Single discussion, open it directly
+    M.show_single_discussion_popup(relevant_discussions[1], cursor_line)
+  else
+    vim.notify("No discussions found at current position", vim.log.levels.WARN)
+  end
 end
 
+-- Show a picker to select which discussion to open when there are multiple
+function M.show_discussion_picker(discussions, line_number)
+  local items = {}
+  local display_to_discussion = {}
+  
+  for i, discussion in ipairs(discussions) do
+    local author = "Unknown"
+    local preview = "No content"
+    local comment_count = 0
+    
+    if discussion.comments and #discussion.comments > 0 then
+      comment_count = #discussion.comments
+      if discussion.comments[1].author then
+        author = discussion.comments[1].author.name or "Unknown"
+      end
+      if discussion.comments[1].content then
+        -- Get first line of content as preview
+        preview = discussion.comments[1].content:match("([^\n]*)")
+        if #preview > 50 then
+          preview = preview:sub(1, 47) .. "..."
+        end
+      end
+    end
+    
+    local display = string.format("[%s] %d comment%s: %s", 
+      author, comment_count, comment_count == 1 and "" or "s", preview)
+    
+    table.insert(items, display)
+    display_to_discussion[display] = discussion
+  end
+  
+  vim.ui.select(items, {
+    prompt = string.format('Select discussion on line %d:', line_number),
+    format_item = function(display) return display end
+  }, function(choice)
+    if choice then
+      local selected_discussion = display_to_discussion[choice]
+      M.show_single_discussion_popup(selected_discussion, line_number)
+    end
+  end)
+end
+
+-- Show a single discussion in a popup window
+function M.show_single_discussion_popup(discussion, line_number)
+  local content = {}
+  
+  table.insert(content, string.format("=== Line %d Discussion ===", line_number))
+  table.insert(content, "Press 'q' to close this window")
+  table.insert(content, "")
+  
+  -- Show discussion context if available
+  if discussion.context then
+    local start_line = discussion.context.start_line or discussion.context.line_number
+    local end_line = discussion.context.end_line or start_line
+    local start_col = discussion.context.start_column
+    local end_col = discussion.context.end_column
+    
+    if start_line == end_line then
+      -- Single line
+      if start_col and end_col then
+        table.insert(content, string.format("Range: line %d, columns %d-%d", start_line, start_col, end_col))
+      else
+        table.insert(content, string.format("Range: line %d (entire line)", start_line))
+      end
+    else
+      -- Multi-line
+      if start_col and end_col then
+        table.insert(content, string.format("Range: lines %d-%d, from col %d to col %d", start_line, end_line, start_col, end_col))
+      else
+        table.insert(content, string.format("Range: lines %d-%d", start_line, end_line))
+      end
+    end
+  end
+  table.insert(content, "")
+  
+  -- Format each comment in the discussion
+  for _, comment in ipairs(discussion.comments or {}) do
+    local author = comment.author and comment.author.name or "Unknown"
+    local date = comment.created_at and comment.created_at:sub(1, 10) or "Unknown date"
+    
+    table.insert(content, string.format("@%s", author))
+    table.insert(content, string.format("Posted on %s", date))
+    table.insert(content, "")
+    
+    -- Add comment content, preserving line breaks and indenting
+    local comment_text = comment.content or "No content"
+    for _, line in ipairs(vim.split(comment_text, "\n", { plain = true })) do
+      table.insert(content, line)
+    end
+    table.insert(content, "")
+  end
+  
+  table.insert(content, "")
+  table.insert(content, "Press 'q' to close")
+
+  -- Show floating window with comments
+  local popup_bufnr, winnr = vim.lsp.util.open_floating_preview(content, 'markdown', {
+    border = 'rounded',
+    max_width = 90,
+    max_height = 25,
+    focus = true
+  })
+  
+  -- Ensure the floating window is focused and set cursor position
+  if vim.api.nvim_win_is_valid(winnr) then
+    -- Explicitly set focus to the floating window
+    vim.api.nvim_set_current_win(winnr)
+    
+    -- Find the first line that contains actual comment content
+    local target_line = 1
+    for i, line in ipairs(content) do
+      if line:match("^@") then
+        target_line = i + 2  -- Move to comment content (skip @author and date lines)
+        break
+      end
+    end
+    
+    -- Ensure target_line is within bounds
+    target_line = math.min(target_line, #content)
+    target_line = math.max(target_line, 1)
+    
+    vim.api.nvim_win_set_cursor(winnr, {target_line, 0})
+  end
+  
+  -- Add keybinding to close the floating window
+  local function close_float()
+    if vim.api.nvim_win_is_valid(winnr) then
+      vim.api.nvim_win_close(winnr, true)
+    end
+  end
+  
+  vim.keymap.set('n', 'q', close_float, { buffer = popup_bufnr, desc = 'Close discussion' })
+
+  -- Add highlights to the popup
+  for i, line in ipairs(content) do
+    if line:match("^=== .* ===$") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Title', i-1, 0, -1)
+    elseif line:match("^Press 'q'") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'WarningMsg', i-1, 0, -1)
+    elseif line:match("^@") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'EzprDiscussionAuthor', i-1, 0, -1)
+    elseif line:match("^Posted on") or line:match("^Range:") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Comment', i-1, 0, -1)
+    end
+  end
+end
 -- Show all discussions for a line in a popup window
 function M.show_line_discussions_popup(discussions, line_number)
   local content = {}
