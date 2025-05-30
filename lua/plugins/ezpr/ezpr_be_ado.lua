@@ -435,6 +435,52 @@ function M.setup_commands()
     desc = 'Fetch discussions for a pull request by ID',
   })
 
+  -- Command to create a comment on the current PR using highlighted text
+  vim.api.nvim_create_user_command('EzprCreateComment', function(opts)
+    -- This command will be handled by the UI module
+    local ezpr_ui = require("plugins.ezpr.ui")
+    
+    if ezpr_ui.create_comment_with_selection then
+      ezpr_ui.create_comment_with_selection()
+    else
+      vim.notify("create_comment_with_selection function not found", vim.log.levels.ERROR)
+    end
+  end, {
+    desc = 'Create a comment on the current PR using highlighted text',
+  })
+
+  -- Command to reply to an existing discussion
+  vim.api.nvim_create_user_command('EzprReplyToDiscussion', function(opts)
+    local args = vim.split(opts.args, ' ', { trimempty = true })
+    local pr_id = tonumber(args[1])
+    local thread_id = tonumber(args[2])
+    local reply_content = table.concat(args, ' ', 3)  -- Rest is the reply content
+    
+    if not pr_id or not thread_id or not reply_content or reply_content == '' then
+      print('✗ Usage: :EzprReplyToDiscussion <pr_id> <thread_id> <reply_content>')
+      print('  Example: :EzprReplyToDiscussion 123 456 "I agree with this suggestion"')
+      return
+    end
+    
+    print('Replying to discussion ' .. thread_id .. ' on PR #' .. pr_id .. '...')
+    local result = M.reply_to_discussion(pr_id, thread_id, reply_content)
+    
+    if result.success then
+      print('✓ ' .. result.message)
+      if result.comment_id then
+        print('  Comment ID: ' .. result.comment_id)
+      end
+    else
+      print('✗ Failed to create reply: ' .. (result.error or 'unknown error'))
+      if result.raw_response then
+        print('  Raw response: ' .. result.raw_response:sub(1, 200) .. '...')
+      end
+    end
+  end, {
+    nargs = '+',
+    desc = 'Reply to an existing discussion thread',
+  })
+
   -- Commands registered silently
 end
 
@@ -820,6 +866,225 @@ function M.fetch_pr_file_content(pr_id, file_path)
     content = file_result,
     file_path = file_path,
     branch = source_ref,
+  }
+end
+-- Create a new comment/discussion on a pull request
+function M.create_pr_comment(pr_id, comment_content, file_path, start_line, end_line, start_column, end_column)
+  -- Ensure we're authenticated
+  if not is_auth_valid() then
+    local auth_result = M.auth()
+    if not auth_result.success then
+      return {
+        success = false,
+        error = 'Authentication failed: ' .. (auth_result.error or 'unknown error'),
+      }
+    end
+  end
+
+  local token, err = ensure_token()
+  if err then
+    return {
+      success = false,
+      error = 'Failed to get Azure token: ' .. err,
+    }
+  end
+
+  local organization, project, repo = auth_state.organization, auth_state.project, auth_state.repo
+  
+  -- Build the thread creation payload
+  local thread_payload = {
+    comments = {
+      {
+        parentCommentId = 0,
+        content = comment_content,
+        commentType = 1  -- Text comment
+      }
+    },
+    status = 1,  -- Active status
+  }
+  
+  -- Add thread context if file path and line information is provided
+  if file_path and start_line then
+    -- Azure DevOps API expects 1-based line numbers, but we might be getting 0-based
+    -- Ensure line numbers are at least 1
+    local adj_start_line = math.max(1, start_line)
+    local adj_end_line = math.max(1, end_line or start_line)
+    local adj_start_column = math.max(1, start_column or 1)
+    local adj_end_column = math.max(1, end_column or (start_column and start_column + 1 or 2))
+    
+    thread_payload.threadContext = {
+      filePath = file_path,
+      rightFileStart = {
+        line = adj_start_line,
+        offset = adj_start_column
+      },
+      rightFileEnd = {
+        line = adj_end_line,
+        offset = adj_end_column
+      }
+    }
+  end
+  
+  local api_version = '7.1'
+  local url = string.format(
+    'https://dev.azure.com/%s/%s/_apis/git/repositories/%s/pullRequests/%d/threads?api-version=%s',
+    organization, project, repo, pr_id, api_version
+  )
+  
+  -- Convert payload to JSON
+  local json_payload = vim.json.encode(thread_payload)
+  
+  -- Create curl command to post the comment
+  local cmd = string.format(
+    'curl -s -X POST -H "Authorization: Bearer %s" -H "Content-Type: application/json" -d %s "%s"',
+    token,
+    vim.fn.shellescape(json_payload),
+    url
+  )
+  
+  local handle = io.popen(cmd)
+  if not handle then
+    return {
+      success = false,
+      error = 'Failed to execute curl command',
+    }
+  end
+
+  local response = handle:read('*a')
+  handle:close()
+
+  -- Try to clean any BOM or whitespace
+  response = response:gsub("^%s*", ""):gsub("^%z+", "")
+
+  -- Parse JSON response
+  local ok, parsed = pcall(vim.json.decode, response)
+  if not ok then
+    return {
+      success = false,
+      error = 'JSON parse error: ' .. tostring(parsed),
+      raw_response = response
+    }
+  end
+  
+  -- Check for API errors
+  if parsed.message and parsed.message:match('[Ee]rror') then
+    return {
+      success = false,
+      error = 'API error: ' .. parsed.message,
+      raw_response = response
+    }
+  end
+  
+  -- Check if we got a valid thread response
+  if not parsed.id then
+    return {
+      success = false,
+      error = 'Invalid response: missing thread ID',
+      raw_response = response
+    }
+  end
+
+  return {
+    success = true,
+    thread_id = parsed.id,
+    comment_id = parsed.comments and parsed.comments[1] and parsed.comments[1].id or nil,
+    message = 'Comment created successfully'
+  }
+end
+
+-- Create a reply to an existing discussion thread
+function M.reply_to_discussion(pr_id, thread_id, reply_content)
+  -- Ensure we're authenticated
+  if not is_auth_valid() then
+    local auth_result = M.auth()
+    if not auth_result.success then
+      return {
+        success = false,
+        error = 'Authentication failed: ' .. (auth_result.error or 'unknown error'),
+      }
+    end
+  end
+
+  local token, err = ensure_token()
+  if err then
+    return {
+      success = false,
+      error = 'Failed to get Azure token: ' .. err,
+    }
+  end
+
+  local organization, project, repo = auth_state.organization, auth_state.project, auth_state.repo
+  
+  -- Build the comment payload
+  local comment_payload = {
+    content = reply_content,
+    parentCommentId = 0,  -- 0 means it's a root-level reply to the thread
+    commentType = 1  -- Text comment
+  }
+  
+  local api_version = '7.1'
+  local url = string.format(
+    'https://dev.azure.com/%s/%s/_apis/git/repositories/%s/pullRequests/%d/threads/%d/comments?api-version=%s',
+    organization, project, repo, pr_id, thread_id, api_version
+  )
+  
+  -- Convert payload to JSON
+  local json_payload = vim.json.encode(comment_payload)
+  
+  -- Create curl command to post the reply
+  local cmd = string.format(
+    'curl -s -X POST -H "Authorization: Bearer %s" -H "Content-Type: application/json" -d %s "%s"',
+    token,
+    vim.fn.shellescape(json_payload),
+    url
+  )
+  
+  local handle = io.popen(cmd)
+  if not handle then
+    return {
+      success = false,
+      error = 'Failed to execute curl command',
+    }
+  end
+
+  local response = handle:read('*a')
+  handle:close()
+
+  -- Try to clean any BOM or whitespace
+  response = response:gsub("^%s*", ""):gsub("^%z+", "")
+
+  -- Parse JSON response
+  local ok, parsed = pcall(vim.json.decode, response)
+  if not ok then
+    return {
+      success = false,
+      error = 'JSON parse error: ' .. tostring(parsed),
+      raw_response = response
+    }
+  end
+  
+  -- Check for API errors
+  if parsed.message and parsed.message:match('[Ee]rror') then
+    return {
+      success = false,
+      error = 'API error: ' .. parsed.message,
+      raw_response = response
+    }
+  end
+  
+  -- Check if we got a valid comment response
+  if not parsed.id then
+    return {
+      success = false,
+      error = 'Invalid response: missing comment ID',
+      raw_response = response
+    }
+  end
+
+  return {
+    success = true,
+    comment_id = parsed.id,
+    message = 'Reply created successfully'
   }
 end
 

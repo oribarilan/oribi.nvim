@@ -1158,29 +1158,200 @@ function M.show_single_discussion_popup(discussion, line_number)
     
     vim.api.nvim_win_set_cursor(winnr, {target_line, 0})
   end
+end
+
+-- Create a comment on the current PR using highlighted text
+function M.create_comment_with_selection()
+  -- Check if we have an active PR
+  if not M.state.pr_data or not M.state.pr_data.pullRequestId then
+    vim.notify("No active PR found. Please open a PR first with :EzprListPRs", vim.log.levels.ERROR)
+    return
+  end
   
-  -- Add keybinding to close the floating window
-  local function close_float()
-    if vim.api.nvim_win_is_valid(winnr) then
-      vim.api.nvim_win_close(winnr, true)
+  -- Try to determine the current file
+  local current_file = M.state.current_file
+  if not current_file or not current_file.path then
+    -- Try to match current buffer with PR files
+    local current_buffer_path = vim.api.nvim_buf_get_name(0)
+    if current_buffer_path and current_buffer_path ~= "" then
+      -- Get relative path from current working directory
+      local cwd = vim.fn.getcwd()
+      local relative_path = current_buffer_path:gsub("^" .. vim.pesc(cwd .. "/"), "")
+      
+      -- Look for this file in the PR files
+      if M.state.files_data then
+        for _, file in ipairs(M.state.files_data) do
+          if file.path == relative_path or file.path:match(vim.pesc(relative_path) .. "$") then
+            current_file = file
+            M.state.current_file = file  -- Update state
+            break
+          end
+        end
+      end
+    end
+    
+    if not current_file or not current_file.path then
+      vim.notify("Cannot determine current file. Please select a file from the PR first or ensure you're editing a file that's part of the PR", vim.log.levels.ERROR)
+      return
     end
   end
   
-  vim.keymap.set('n', 'q', close_float, { buffer = popup_bufnr, desc = 'Close discussion' })
+  -- Get visual selection
+  local mode = vim.fn.mode()
+  local start_pos, end_pos
+  
+  if mode == 'v' or mode == 'V' or mode == '\22' then
+    -- Currently in visual mode
+    start_pos = vim.fn.getpos("'<")
+    end_pos = vim.fn.getpos("'>")
+  else
+    -- Not in visual mode, check if there's a previous selection
+    start_pos = vim.fn.getpos("'<")
+    end_pos = vim.fn.getpos("'>")
+    
+    -- Validate that we have a meaningful selection
+    if start_pos[2] == 0 or end_pos[2] == 0 or (start_pos[2] == end_pos[2] and start_pos[3] == end_pos[3]) then
+      vim.notify("No text selected. Please highlight the code you want to comment on", vim.log.levels.WARN)
+      return
+    end
+  end
+  
+  local start_line = start_pos[2]
+  local start_col = start_pos[3]
+  local end_line = end_pos[2]
+  local end_col = end_pos[3]
+  
+  -- Show comment input floating window
+  M.show_comment_input_window(M.state.pr_data.pullRequestId, current_file.path, start_line, end_line, start_col, end_col)
+end
 
-  -- Add highlights to the popup
-  for i, line in ipairs(content) do
-    if line:match("^=== .* ===$") then
-      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Title', i-1, 0, -1)
-    elseif line:match("^Press 'q'") then
-      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'WarningMsg', i-1, 0, -1)
-    elseif line:match("^@") then
-      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'EzprDiscussionAuthor', i-1, 0, -1)
-    elseif line:match("^Posted on") or line:match("^Range:") then
-      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Comment', i-1, 0, -1)
+-- Show floating window for comment input
+function M.show_comment_input_window(pr_id, file_path, start_line, end_line, start_col, end_col)
+  -- Create a new buffer for the comment input
+  local input_buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_option(input_buf, 'buftype', 'nofile')
+  vim.api.nvim_buf_set_option(input_buf, 'bufhidden', 'wipe')
+  vim.api.nvim_buf_set_option(input_buf, 'filetype', 'markdown')
+  
+  -- Set initial content with instructions
+  local instructions = {
+    "# Create Comment",
+    "",
+    string.format("File: %s", file_path),
+    string.format("Lines: %d-%d, Columns: %d-%d", start_line, end_line, start_col, end_col),
+    "",
+    "Press <Ctrl-s> to submit comment, 'q' to cancel",
+    "",
+    "--- Write your comment below this line ---",
+    "",
+    ""  -- Empty line for user to start typing
+  }
+  
+  vim.api.nvim_buf_set_lines(input_buf, 0, -1, false, instructions)
+  
+  -- Calculate window size and position
+  local width = math.min(80, vim.o.columns - 10)
+  local height = math.min(20, vim.o.lines - 10)
+  local row = math.floor((vim.o.lines - height) / 2)
+  local col = math.floor((vim.o.columns - width) / 2)
+  
+  -- Create floating window
+  local win_opts = {
+    relative = 'editor',
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    border = 'rounded',
+    title = ' New Comment ',
+    title_pos = 'center',
+    style = 'minimal'
+  }
+  
+  local input_win = vim.api.nvim_open_win(input_buf, true, win_opts)
+  
+  -- Position cursor on the last line where user should type
+  vim.api.nvim_win_set_cursor(input_win, {#instructions, 0})
+  
+  -- Set buffer-local keymaps
+  local function submit_comment()
+    -- Get all lines from the buffer
+    local all_lines = vim.api.nvim_buf_get_lines(input_buf, 0, -1, false)
+    
+    -- Find the content after the separator line
+    local comment_lines = {}
+    local found_separator = false
+    
+    for _, line in ipairs(all_lines) do
+      if line:match("^%-%-%-.*Write your comment") then
+        found_separator = true
+      elseif found_separator and line:match("^%s*$") == nil then
+        table.insert(comment_lines, line)
+      end
+    end
+    
+    -- Join comment lines
+    local comment_content = table.concat(comment_lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
+    
+    if comment_content == "" then
+      vim.notify("Comment cannot be empty", vim.log.levels.WARN)
+      return
+    end
+    
+    -- Close the input window
+    if vim.api.nvim_win_is_valid(input_win) then
+      vim.api.nvim_win_close(input_win, true)
+    end
+    
+    -- Submit the comment
+    M.submit_pr_comment(pr_id, file_path, start_line, end_line, start_col, end_col, comment_content)
+  end
+  
+  local function cancel_comment()
+    if vim.api.nvim_win_is_valid(input_win) then
+      vim.api.nvim_win_close(input_win, true)
+    end
+  end
+  
+  -- Set up keymaps with proper options
+  local keymap_opts = { buffer = input_buf, noremap = true, silent = true }
+  
+  vim.keymap.set('n', '<C-s>', submit_comment, vim.tbl_extend('force', keymap_opts, { desc = 'Submit comment' }))
+  vim.keymap.set('i', '<C-s>', function()
+    vim.cmd('stopinsert')
+    submit_comment()
+  end, vim.tbl_extend('force', keymap_opts, { desc = 'Submit comment' }))
+  vim.keymap.set('n', 'q', cancel_comment, vim.tbl_extend('force', keymap_opts, { desc = 'Cancel comment' }))
+  
+  -- Enable insert mode
+  vim.cmd('startinsert')
+end
+
+-- Submit the PR comment using the backend
+function M.submit_pr_comment(pr_id, file_path, start_line, end_line, start_col, end_col, comment_content)
+  vim.notify("Submitting comment...", vim.log.levels.INFO)
+  
+  -- Get the ADO backend
+  local ado_backend = require("plugins.ezpr.ezpr_be_ado")
+  
+  -- Submit the comment
+  local result = ado_backend.create_pr_comment(pr_id, comment_content, file_path, start_line, end_line, start_col, end_col)
+  
+  if result.success then
+    vim.notify("✓ Comment created successfully!", vim.log.levels.INFO)
+    
+    -- Refresh discussions for the current file to show the new comment
+    if M.state.current_file then
+      M.load_file_discussions_for_file(M.state.current_file)
+    end
+  else
+    vim.notify("✗ Failed to create comment: " .. (result.error or "Unknown error"), vim.log.levels.ERROR)
+    if result.raw_response then
+      vim.notify("Raw response: " .. result.raw_response:sub(1, 200) .. "...", vim.log.levels.DEBUG)
     end
   end
 end
+
 -- Show all discussions for a line in a popup window
 function M.show_line_discussions_popup(discussions, line_number)
   local content = {}
