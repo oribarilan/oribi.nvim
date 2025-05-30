@@ -457,14 +457,37 @@ function M.load_file_discussions_for_file(file)
   
   -- Format discussions for display
   local discussion_lines = {}
+  local highlight_info = {}  -- Store highlight information for styling
   
   if #discussions == 0 then
     table.insert(discussion_lines, "No discussions for this file")
+    table.insert(highlight_info, { type = "normal" })
   else
     for i, discussion in ipairs(discussions) do
       local line_info = "?"
       if discussion.context and discussion.context.line_number then
-        line_info = discussion.context.line_number
+        line_info = "Line " .. discussion.context.line_number
+      end
+      
+      -- Get the actual discussion status
+      local status = "active"  -- default
+      if discussion.status then
+        status = discussion.status
+      elseif discussion.context and discussion.context.status then
+        -- Map Azure DevOps status codes to text
+        local status_map = {
+          [1] = "active",
+          [2] = "pending",
+          [3] = "won't fix",
+          [4] = "resolved",
+          [5] = "closed"
+        }
+        status = status_map[discussion.context.status] or "active"
+      end
+      
+      -- Check if outdated
+      if discussion.context and discussion.context.is_outdated then
+        status = "outdated"
       end
       
       local comment_count = discussion.comments and #discussion.comments or 0
@@ -479,9 +502,11 @@ function M.load_file_discussions_for_file(file)
         end
       end
       
-      local line = string.format("%d. %s - %d comment%s by %s",
-        i, line_info, comment_count, comment_count == 1 and "" or "s", author)
+      -- Format: [Status] Line X @Author (count)
+      local line = string.format("[%s] %s @%s (%d)",
+        status, line_info, author, comment_count)
       table.insert(discussion_lines, line)
+      table.insert(highlight_info, { type = "normal", status = status })
     end
   end
   
@@ -490,10 +515,19 @@ function M.load_file_discussions_for_file(file)
     vim.api.nvim_buf_set_option(M.state.discussions_buf, 'modifiable', true)
     vim.api.nvim_buf_set_lines(M.state.discussions_buf, 0, -1, false, discussion_lines)
     vim.api.nvim_buf_set_option(M.state.discussions_buf, 'modifiable', false)
+    
+    -- Apply highlighting for active/inactive discussions
+    M.apply_discussion_list_highlights(M.state.discussions_buf, highlight_info)
   end
   
   -- Add virtual text indicators for discussions in the main buffer
   M.add_discussion_indicators(discussions)
+end
+
+-- Apply simple highlighting to the discussions list
+function M.apply_discussion_list_highlights(buf, highlight_info)
+  -- This function is kept for compatibility but simplified
+  -- No complex highlighting needed - just use default text styling
 end
 
 -- Select a discussion from the discussions panel
@@ -904,57 +938,71 @@ function M.add_discussion_indicators(discussions)
       local line_num = start_line_number - 1  -- Convert to 0-based
       
       if line_num >= 0 and line_num < buf_line_count then
-        -- Calculate total comments, authors, and states for discussions starting at this line
-        local total_comments = 0
-        local authors = {}
-        local state_counts = { active = 0, resolved = 0, outdated = 0 }
+        -- Create individual discussion entries for virtual text
+        local discussion_entries = {}
         
         for _, discussion in ipairs(start_line_discussions) do
           local comment_count = discussion.comments and #discussion.comments or 0
-          total_comments = total_comments + comment_count
           
-          -- Count discussion states
-          if discussion.context.is_outdated then
-            state_counts.outdated = state_counts.outdated + 1
-          elseif discussion.context.status == 4 then
-            state_counts.resolved = state_counts.resolved + 1
-          else
-            state_counts.active = state_counts.active + 1
+          -- Get the actual status for each discussion (same logic as discussion panel)
+          local disc_status = "active"  -- default
+          if discussion.status then
+            disc_status = discussion.status
+          elseif discussion.context and discussion.context.status then
+            -- Map Azure DevOps status codes to text
+            local status_map = {
+              [1] = "active",
+              [2] = "pending",
+              [3] = "won't fix",
+              [4] = "resolved",
+              [5] = "closed"
+            }
+            disc_status = status_map[discussion.context.status] or "active"
           end
           
-          -- Collect unique authors
+          -- Check if outdated
+          if discussion.context and discussion.context.is_outdated then
+            disc_status = "outdated"
+          end
+          
+          -- Get author name
+          local author_name = "Unknown"
           if discussion.comments and #discussion.comments > 0 and discussion.comments[1].author then
-            local author_name = discussion.comments[1].author.name or "Unknown"
-            authors[author_name] = true
+            author_name = discussion.comments[1].author.name or "Unknown"
           end
+          
+          -- Determine if this is an open discussion
+          local is_open = (disc_status == "active" or disc_status == "pending")
+          
+          -- Create discussion entry
+          table.insert(discussion_entries, {
+            status = disc_status,
+            comment_count = comment_count,
+            author = author_name,
+            is_open = is_open
+          })
         end
         
-        -- Format the virtual text with state indicators
-        local author_list = {}
-        for author, _ in pairs(authors) do
-          local short_author = #author > 10 and author:sub(1, 7) .. "..." or author
-          table.insert(author_list, short_author)
-        end
-        local author_text = table.concat(author_list, ", ")
-        if #author_list > 2 then
-          author_text = author_list[1] .. " and " .. (#author_list - 1) .. " others"
+        -- Sort discussions: open ones first, then closed ones
+        table.sort(discussion_entries, function(a, b)
+          if a.is_open and not b.is_open then
+            return true  -- a comes first (open before closed)
+          elseif not a.is_open and b.is_open then
+            return false -- b comes first (open before closed)
+          else
+            return false -- maintain relative order within same type
+          end
+        end)
+        
+        -- Format virtual text: one entry per discussion, separated by " | "
+        local virt_parts = {}
+        for _, entry in ipairs(discussion_entries) do
+          local part = string.format("[%s] 💬%d @%s",
+            entry.status, entry.comment_count, entry.author)
+          table.insert(virt_parts, part)
         end
         
-        -- Create state indicator
-        local state_parts = {}
-        if state_counts.active > 0 then
-          table.insert(state_parts, state_counts.active .. " active")
-        end
-        if state_counts.resolved > 0 then
-          table.insert(state_parts, state_counts.resolved .. " resolved")
-        end
-        if state_counts.outdated > 0 then
-          table.insert(state_parts, state_counts.outdated .. " outdated")
-        end
-        local state_text = #state_parts > 0 and " (" .. table.concat(state_parts, ", ") .. ")" or ""
-        
-        local virt_text = string.format("💬 %d comment%s by %s%s",
-          total_comments, total_comments == 1 and "" or "s", author_text, state_text)
+        local virt_text = table.concat(virt_parts, " | ")
         
         -- Add virtual line ABOVE the start line of the discussion
         vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
@@ -978,6 +1026,13 @@ function M.clear_discussion_indicators()
       vim.api.nvim_buf_clear_namespace(M.state.main_buf, M.state.discussion_ns, 0, -1)
     end
   end
+  
+  -- Clear discussion list highlights
+  if M.state.discussions_buf and vim.api.nvim_buf_is_valid(M.state.discussions_buf) then
+    local list_ns = vim.api.nvim_create_namespace('ezpr_discussion_list')
+    vim.api.nvim_buf_clear_namespace(M.state.discussions_buf, list_ns, 0, -1)
+  end
+  
   M.state.discussions_by_line = {}
 end
 
