@@ -763,14 +763,23 @@ function M.add_discussion_indicators(discussions)
   -- Store discussion data by line number for quick lookup
   M.state.discussions_by_line = {}
   
-  -- Group discussions by line number first (handle multi-line discussions)
+  -- Group discussions by their start line for virtual text placement
+  -- Also group by all lines they span for highlighting
+  local discussions_by_start_line = {}
   local discussions_by_line_temp = {}
+  
   for _, discussion in ipairs(discussions) do
     if discussion.context and discussion.context.start_line then
       local start_line = discussion.context.start_line
       local end_line = discussion.context.end_line or start_line
       
-      -- Add discussion to all lines it spans
+      -- Group by start line for virtual text (only appears above topmost line)
+      if not discussions_by_start_line[start_line] then
+        discussions_by_start_line[start_line] = {}
+      end
+      table.insert(discussions_by_start_line[start_line], discussion)
+      
+      -- Add discussion to all lines it spans for highlighting
       for line_num = start_line, end_line do
         if not discussions_by_line_temp[line_num] then
           discussions_by_line_temp[line_num] = {}
@@ -885,12 +894,22 @@ function M.add_discussion_indicators(discussions)
           ::continue::
         end
         
-        -- Add single virtual text at end of line showing total discussions with state info
+        -- Store discussion data for quick lookup by line (for highlighting purposes)
+        M.state.discussions_by_line[line_number] = line_discussions
+      end
+    end
+    
+    -- Add virtual lines above the start line of discussions (only once per start line)
+    for start_line_number, start_line_discussions in pairs(discussions_by_start_line) do
+      local line_num = start_line_number - 1  -- Convert to 0-based
+      
+      if line_num >= 0 and line_num < buf_line_count then
+        -- Calculate total comments, authors, and states for discussions starting at this line
         local total_comments = 0
         local authors = {}
         local state_counts = { active = 0, resolved = 0, outdated = 0 }
         
-        for _, discussion in ipairs(line_discussions) do
+        for _, discussion in ipairs(start_line_discussions) do
           local comment_count = discussion.comments and #discussion.comments or 0
           total_comments = total_comments + comment_count
           
@@ -937,13 +956,11 @@ function M.add_discussion_indicators(discussions)
         local virt_text = string.format("💬 %d comment%s by %s%s",
           total_comments, total_comments == 1 and "" or "s", author_text, state_text)
         
+        -- Add virtual line ABOVE the start line of the discussion
         vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
-          virt_text = {{ virt_text, "EzprDiscussionIndicator" }},
-          virt_text_pos = "eol"
+          virt_lines = {{ { virt_text, "EzprDiscussionIndicator" } }},
+          virt_lines_above = true
         })
-        
-        -- Store discussion data for quick lookup by line
-        M.state.discussions_by_line[line_number] = line_discussions
       end
     end
   end
