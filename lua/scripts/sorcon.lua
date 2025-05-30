@@ -1,5 +1,5 @@
 -- Initialize backend (change to sorcon_be_mock for testing)
-local backend = require('scripts.sorcon_be_mock')
+local backend = require('scripts.sorcon_be_ado')
 
 -- Helper function to format author name
 local function format_author(name)
@@ -11,6 +11,12 @@ end
 
 -- Show PR comments with virtual text
 local function show_pr_comments(pr, bufnr)
+  -- Check if get_threads function exists in backend
+  if not backend.get_threads then
+    -- Function not implemented yet, skip showing comments
+    return
+  end
+  
   local threads = backend.get_threads(pr)
   if not threads or #threads == 0 then return end
 
@@ -34,6 +40,13 @@ local function show_pr_comments(pr, bufnr)
   for _, thread in ipairs(threads) do
     local line_num = thread.threadContext.rightFileStart.line - 1  -- Convert to 0-based
     
+    -- Check if line number is valid for the current buffer
+    local buf_line_count = vim.api.nvim_buf_line_count(bufnr)
+    if line_num < 0 or line_num >= buf_line_count then
+      -- Skip this thread if line number is out of range
+      goto continue
+    end
+    
     -- Store thread data
     _G.sorcon_thread_data[bufnr][line_num] = thread
     
@@ -56,6 +69,8 @@ local function show_pr_comments(pr, bufnr)
       virt_text_pos = "overlay",
       hl_mode = "combine"
     })
+    
+    ::continue::
   end
 
   -- Clean up when buffer is unloaded
@@ -77,12 +92,18 @@ local function show_pr_diff(pr)
   local source_ref = string.format('origin/%s', pr.sourceRefName:gsub('^refs/heads/', ''))
   local pr_content = backend.fetch_file_content(file_info.path, source_ref)
   
-  -- Get main branch content
+  if not pr_content then
+    vim.notify('Failed to fetch PR file content', vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Get main branch content (may be nil for new files)
   local main_content = backend.fetch_file_content(file_info.path, 'origin/main')
   
-  if not pr_content or not main_content then
-    vim.notify('Failed to fetch file content', vim.log.levels.ERROR)
-    return
+  -- If file doesn't exist in main branch, it's a new file - use empty content
+  if not main_content then
+    main_content = ""
+    vim.notify(string.format('File %s is new (not in main branch)', file_info.path), vim.log.levels.INFO)
   end
   
   -- Create temporary files
@@ -101,9 +122,10 @@ local function show_pr_diff(pr)
   vim.cmd('tabnew ' .. tmp_main)
   local main_bufnr = vim.api.nvim_get_current_buf()
   vim.cmd('vertical diffsplit ' .. tmp_pr)
+  local pr_bufnr = vim.api.nvim_get_current_buf()
   
-  -- Show comments
-  show_pr_comments(pr, main_bufnr)
+  -- Show comments on the PR buffer (right side) since that's where the content is
+  show_pr_comments(pr, pr_bufnr)
   
   -- Clean up temp files when buffers are closed
   vim.api.nvim_create_autocmd('BufUnload', {

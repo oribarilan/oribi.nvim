@@ -4,6 +4,14 @@ local M = {}
 local cached_token = nil
 local token_expiry = nil
 
+-- Azure info cache
+local cached_azure_info = nil
+
+-- PR list cache
+local cached_prs = nil
+local prs_cache_expiry = nil
+local PR_CACHE_DURATION = 60 -- Cache PRs for 60 seconds
+
 -- Get Azure DevOps token using Azure CLI
 local function get_azure_token()
   local cmd = 'az account get-access-token --resource https://microsoft.visualstudio.com/ --query accessToken --output tsv'
@@ -36,6 +44,11 @@ end
 
 -- Get organization and project from git remote
 local function get_azure_info()
+  -- Return cached info if available
+  if cached_azure_info then
+    return cached_azure_info.org, cached_azure_info.project, cached_azure_info.repo
+  end
+  
   local handle = io.popen('git remote get-url origin')
   if not handle then
     vim.notify('Failed to execute git remote command', vim.log.levels.ERROR)
@@ -66,6 +79,8 @@ local function get_azure_info()
   if org then
     project = url:match('dev%.azure%.com/[^/]+/([^/]+)/_git/')
     if project then
+      -- Cache the result
+      cached_azure_info = {org = org, project = project, repo = repo}
       return org, project, repo
     end
   end
@@ -73,12 +88,16 @@ local function get_azure_info()
   -- Format: https://microsoft.visualstudio.com/DefaultCollection/WDATP/_git/Port.Runner
   org = url:match('visualstudio%.com/DefaultCollection/([^/]+)/')
   if org then
+    -- Cache the result
+    cached_azure_info = {org = "microsoft", project = org, repo = repo}
     return "microsoft", org, repo
   end
 
   -- Format: https://microsoft.visualstudio.com/WDATP/_git/Port.Runner
   org = url:match('visualstudio%.com/([^/]+)/_git/')
   if org then
+    -- Cache the result
+    cached_azure_info = {org = "microsoft", project = org, repo = repo}
     return "microsoft", org, repo
   end
   
@@ -89,6 +108,11 @@ end
 
 -- Implementation of the interface
 function M.fetch_prs()
+  -- Check if we have cached PRs that are still valid
+  if cached_prs and prs_cache_expiry and os.time() < prs_cache_expiry then
+    return cached_prs
+  end
+  
   local token = ensure_token()
   if not token then
     vim.notify('Failed to get Azure token. Is az cli logged in?', vim.log.levels.ERROR)
@@ -131,6 +155,10 @@ function M.fetch_prs()
     return nil
   end
 
+  -- Cache the result
+  cached_prs = parsed.value
+  prs_cache_expiry = os.time() + PR_CACHE_DURATION
+  
   return parsed.value
 end
 
@@ -174,8 +202,8 @@ function M.fetch_first_change(pr)
   local first_change = parsed.changeEntries[1]
   return {
     path = first_change.item.path,
-    new_id = string.lower(first_change.item.objectId),
-    old_id = string.lower(first_change.item.originalObjectId)
+    new_id = first_change.item.objectId and string.lower(first_change.item.objectId) or nil,
+    old_id = first_change.item.originalObjectId and string.lower(first_change.item.originalObjectId) or nil
   }
 end
 
@@ -239,11 +267,58 @@ function M.fetch_file_content(path, ref)
   handle:close()
 
   if content == "" then
-    vim.notify('No content found for ' .. path .. ' at ' .. ref, vim.log.levels.ERROR)
+    -- Don't show error for missing files - let the caller handle it
     return nil
   end
 
   return content
+end
+
+function M.get_threads(pr)
+  local token = ensure_token()
+  if not token then return nil end
+
+  local organization, project, repo = get_azure_info()
+  if not organization or not project or not repo then return nil end
+
+  local url = string.format(
+    'https://dev.azure.com/%s/%s/_apis/git/repositories/%s/pullRequests/%d/threads?api-version=7.1',
+    organization, project, repo, pr.pullRequestId
+  )
+  
+  local cmd = string.format('curl -s -H "Authorization: Bearer %s" "%s"', token, url)
+  local handle = io.popen(cmd)
+  if not handle then return nil end
+  
+  local response = handle:read('*a')
+  handle:close()
+
+  -- Try to clean any BOM or whitespace
+  response = response:gsub("^%s*", ""):gsub("^%z+", "")
+  
+  local ok, parsed = pcall(vim.json.decode, response)
+  if not ok then
+    vim.notify('Failed to parse threads response: ' .. tostring(parsed), vim.log.levels.ERROR)
+    return nil
+  end
+
+  if not parsed.value then
+    return {}  -- No threads found, return empty array
+  end
+
+  -- Filter threads that have threadContext (code comments) and are not deleted
+  local code_threads = {}
+  for _, thread in ipairs(parsed.value) do
+    -- Check if threadContext exists and is not vim.NIL (null in JSON)
+    if thread.threadContext and
+       type(thread.threadContext) == "table" and
+       thread.threadContext.rightFileStart and
+       not thread.isDeleted then
+      table.insert(code_threads, thread)
+    end
+  end
+
+  return code_threads
 end
 
 return M
