@@ -714,6 +714,37 @@ function M.get_state()
   return M.state
 end
 
+-- Helper function to determine which side of diff to highlight based on context
+local function get_discussion_position_for_side(discussion, side)
+  local context = discussion.context
+  if not context then return nil end
+  
+  -- For side-by-side diff views, use appropriate file context
+  if side == "left" and context.left_file then
+    return {
+      start_line = context.left_file.start_line,
+      end_line = context.left_file.end_line,
+      start_column = context.left_file.start_column,
+      end_column = context.left_file.end_column,
+    }
+  elseif side == "right" and context.right_file then
+    return {
+      start_line = context.right_file.start_line,
+      end_line = context.right_file.end_line,
+      start_column = context.right_file.start_column,
+      end_column = context.right_file.end_column,
+    }
+  end
+  
+  -- Fallback to primary context (usually right side for new/modified content)
+  return {
+    start_line = context.start_line,
+    end_line = context.end_line,
+    start_column = context.start_column,
+    end_column = context.end_column,
+  }
+end
+
 -- Add virtual text indicators for discussions
 function M.add_discussion_indicators(discussions)
   -- Clear any existing discussion indicators
@@ -722,10 +753,12 @@ function M.add_discussion_indicators(discussions)
   -- Create namespace for discussion indicators
   M.state.discussion_ns = vim.api.nvim_create_namespace('ezpr_discussions')
   
-  -- Create highlight groups if they don't exist
+  -- Create highlight groups with enhanced styling for different states
   vim.api.nvim_set_hl(0, 'EzprDiscussionIndicator', { fg = '#61afef', bold = true })
   vim.api.nvim_set_hl(0, 'EzprDiscussionAuthor', { fg = '#98c379', bold = true })
   vim.api.nvim_set_hl(0, 'EzprDiscussionHighlight', { bg = '#3e4451', fg = '#61afef' })
+  vim.api.nvim_set_hl(0, 'EzprDiscussionHighlightOutdated', { bg = '#5c4037', italic = true })
+  vim.api.nvim_set_hl(0, 'EzprDiscussionHighlightResolved', { bg = '#2e7d32', strikethrough = true })
   
   -- Store discussion data by line number for quick lookup
   M.state.discussions_by_line = {}
@@ -762,38 +795,51 @@ function M.add_discussion_indicators(discussions)
         
         -- Add highlights for each discussion's text range
         for _, discussion in ipairs(line_discussions) do
-          local start_line = discussion.context.start_line or discussion.context.line_number
-          local end_line = discussion.context.end_line or start_line
-          local start_col = discussion.context.start_column
-          local end_col = discussion.context.end_column
+          local context = discussion.context
+          local start_line = context.start_line or context.line_number
+          local end_line = context.end_line or start_line
+          local start_col = context.start_column
+          local end_col = context.end_column
+          
+          -- Determine highlight group based on discussion state
+          local hl_group = "EzprDiscussionHighlight"
+          if context.is_outdated then
+            hl_group = "EzprDiscussionHighlightOutdated"
+          elseif context.status == 4 then -- Fixed/Resolved in Azure DevOps
+            hl_group = "EzprDiscussionHighlightResolved"
+          end
           
           -- Skip if we don't have valid line information
           if not start_line or not end_line then
             goto continue
           end
           
+          -- Convert Azure DevOps 1-based columns to Neovim 0-based columns
+          local adjusted_start_col = start_col and math.max(0, start_col - 1) or nil
+          local adjusted_end_col = end_col and math.max(0, end_col - 1) or nil
+          
           -- Handle multi-line discussions
           if start_line == end_line and start_line == line_number then
             -- Single line discussion on current line
-            if start_col and end_col and start_col >= 0 and end_col > start_col then
+            if adjusted_start_col and adjusted_end_col and adjusted_start_col >= 0 and adjusted_end_col > adjusted_start_col then
               -- Validate and clamp column positions to line bounds
-              local clamped_start = math.max(0, math.min(start_col, line_length))
-              local clamped_end = math.max(clamped_start + 1, math.min(end_col, line_length))
+              local clamped_start = math.max(0, math.min(adjusted_start_col, line_length))
+              local clamped_end = math.max(clamped_start + 1, math.min(adjusted_end_col, line_length))
               
               -- Only add highlights if we have a valid range within the line
               if clamped_start < line_length and clamped_end > clamped_start then
                 vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, clamped_start, {
                   end_col = clamped_end,
-                  hl_group = "EzprDiscussionHighlight"
+                  hl_group = hl_group
                 })
               end
-            elseif start_col and start_col >= 0 and not end_col then
+            elseif adjusted_start_col and adjusted_start_col >= 0 and not adjusted_end_col then
               -- Only start column provided, highlight from start to end of line
-              local clamped_start = math.max(0, math.min(start_col, line_length))
+              local clamped_start = math.max(0, math.min(adjusted_start_col, line_length))
               if clamped_start < line_length then
                 vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, clamped_start, {
                   end_col = line_length,
-                  hl_group = "EzprDiscussionHighlight"
+                  hl_group = hl_group
                 })
               end
             else
@@ -801,7 +847,7 @@ function M.add_discussion_indicators(discussions)
               if line_length > 0 then
                 vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
                   end_col = line_length,
-                  hl_group = "EzprDiscussionHighlight"
+                  hl_group = hl_group
                 })
               end
             end
@@ -809,20 +855,20 @@ function M.add_discussion_indicators(discussions)
             -- Multi-line discussion and current line is within range
             if line_number == start_line then
               -- First line: highlight from start_col to end of line
-              local highlight_start = math.max(0, math.min(start_col or 0, line_length))
+              local highlight_start = math.max(0, math.min(adjusted_start_col or 0, line_length))
               if highlight_start < line_length then
                 vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, highlight_start, {
                   end_col = line_length,
-                  hl_group = "EzprDiscussionHighlight"
+                  hl_group = hl_group
                 })
               end
             elseif line_number == end_line then
               -- Last line: highlight from beginning to end_col
-              local highlight_end = math.max(1, math.min(end_col or line_length, line_length))
+              local highlight_end = math.max(1, math.min(adjusted_end_col or line_length, line_length))
               if highlight_end > 0 then
                 vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
                   end_col = highlight_end,
-                  hl_group = "EzprDiscussionHighlight"
+                  hl_group = hl_group
                 })
               end
             else
@@ -830,7 +876,7 @@ function M.add_discussion_indicators(discussions)
               if line_length > 0 then
                 vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
                   end_col = line_length,
-                  hl_group = "EzprDiscussionHighlight"
+                  hl_group = hl_group
                 })
               end
             end
@@ -839,12 +885,23 @@ function M.add_discussion_indicators(discussions)
           ::continue::
         end
         
-        -- Add single virtual text at end of line showing total discussions
+        -- Add single virtual text at end of line showing total discussions with state info
         local total_comments = 0
         local authors = {}
+        local state_counts = { active = 0, resolved = 0, outdated = 0 }
+        
         for _, discussion in ipairs(line_discussions) do
           local comment_count = discussion.comments and #discussion.comments or 0
           total_comments = total_comments + comment_count
+          
+          -- Count discussion states
+          if discussion.context.is_outdated then
+            state_counts.outdated = state_counts.outdated + 1
+          elseif discussion.context.status == 4 then
+            state_counts.resolved = state_counts.resolved + 1
+          else
+            state_counts.active = state_counts.active + 1
+          end
           
           -- Collect unique authors
           if discussion.comments and #discussion.comments > 0 and discussion.comments[1].author then
@@ -853,7 +910,7 @@ function M.add_discussion_indicators(discussions)
           end
         end
         
-        -- Format the virtual text
+        -- Format the virtual text with state indicators
         local author_list = {}
         for author, _ in pairs(authors) do
           local short_author = #author > 10 and author:sub(1, 7) .. "..." or author
@@ -864,8 +921,21 @@ function M.add_discussion_indicators(discussions)
           author_text = author_list[1] .. " and " .. (#author_list - 1) .. " others"
         end
         
-        local virt_text = string.format("💬 %d comment%s by %s",
-          total_comments, total_comments == 1 and "" or "s", author_text)
+        -- Create state indicator
+        local state_parts = {}
+        if state_counts.active > 0 then
+          table.insert(state_parts, state_counts.active .. " active")
+        end
+        if state_counts.resolved > 0 then
+          table.insert(state_parts, state_counts.resolved .. " resolved")
+        end
+        if state_counts.outdated > 0 then
+          table.insert(state_parts, state_counts.outdated .. " outdated")
+        end
+        local state_text = #state_parts > 0 and " (" .. table.concat(state_parts, ", ") .. ")" or ""
+        
+        local virt_text = string.format("💬 %d comment%s by %s%s",
+          total_comments, total_comments == 1 and "" or "s", author_text, state_text)
         
         vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
           virt_text = {{ virt_text, "EzprDiscussionIndicator" }},

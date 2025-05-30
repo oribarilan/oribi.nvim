@@ -513,19 +513,65 @@ function M.fetch_discussions(pr_id)
       }
       
       -- Add context information if this is a code comment
-      if thread.threadContext and
-         type(thread.threadContext) == "table" and
-         thread.threadContext.rightFileStart then
-        discussion.context = {
-          file_path = thread.threadContext.filePath,
-          start_line = thread.threadContext.rightFileStart.line,
-          start_column = thread.threadContext.rightFileStart.offset,
-          end_line = thread.threadContext.rightFileEnd and thread.threadContext.rightFileEnd.line or thread.threadContext.rightFileStart.line,
-          end_column = thread.threadContext.rightFileEnd and thread.threadContext.rightFileEnd.offset,
-          side = "right", -- Azure DevOps context
-          -- Keep line_number for backward compatibility
-          line_number = thread.threadContext.rightFileStart.line,
+      if thread.threadContext and type(thread.threadContext) == "table" then
+        local context = thread.threadContext
+        local discussion_context = {
+          file_path = context.filePath,
+          thread_type = context.threadType or "text",
         }
+        
+        -- Handle right file context (modified/new lines)
+        if context.rightFileStart then
+          discussion_context.right_file = {
+            start_line = context.rightFileStart.line,
+            start_column = context.rightFileStart.offset,
+            end_line = context.rightFileEnd and context.rightFileEnd.line or context.rightFileStart.line,
+            end_column = context.rightFileEnd and context.rightFileEnd.offset,
+          }
+          -- Set primary position from right file (for new/modified content)
+          discussion_context.start_line = context.rightFileStart.line
+          discussion_context.start_column = context.rightFileStart.offset
+          discussion_context.end_line = context.rightFileEnd and context.rightFileEnd.line or context.rightFileStart.line
+          discussion_context.end_column = context.rightFileEnd and context.rightFileEnd.offset
+          discussion_context.side = "right"
+        end
+        
+        -- Handle left file context (original/deleted lines)
+        if context.leftFileStart then
+          discussion_context.left_file = {
+            start_line = context.leftFileStart.line,
+            start_column = context.leftFileStart.offset,
+            end_line = context.leftFileEnd and context.leftFileEnd.line or context.leftFileStart.line,
+            end_column = context.leftFileEnd and context.leftFileEnd.offset,
+          }
+          -- If no right file context, use left file as primary (for deleted content)
+          if not context.rightFileStart then
+            discussion_context.start_line = context.leftFileStart.line
+            discussion_context.start_column = context.leftFileStart.offset
+            discussion_context.end_line = context.leftFileEnd and context.leftFileEnd.line or context.leftFileStart.line
+            discussion_context.end_column = context.leftFileEnd and context.leftFileEnd.offset
+            discussion_context.side = "left"
+          end
+        end
+        
+        -- Add iteration and tracking context if available
+        if thread.pullRequestThreadContext then
+          local prContext = thread.pullRequestThreadContext
+          discussion_context.iteration_context = prContext.iterationContext
+          discussion_context.tracking_criteria = prContext.trackingCriteria
+          discussion_context.change_tracking_id = prContext.changeTrackingId
+        end
+        
+        -- Determine comment state
+        discussion_context.is_outdated = thread.isDeleted or false
+        if thread.status then
+          discussion_context.status = thread.status -- 1=Active, 4=Fixed, etc.
+        end
+        
+        -- Keep line_number for backward compatibility
+        discussion_context.line_number = discussion_context.start_line
+        
+        discussion.context = discussion_context
       end
       
       -- Transform comments to generic format
