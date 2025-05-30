@@ -284,6 +284,21 @@ local function toggle_thread()
   })
 
   _G.sorcon_float_wins[line] = winnr
+  
+  -- Explicitly set focus to the floating window
+  vim.api.nvim_set_current_win(winnr)
+  
+  -- Add keybindings to close the floating window
+  local function close_float()
+    if vim.api.nvim_win_is_valid(winnr) then
+      vim.api.nvim_win_close(winnr, true)
+      _G.sorcon_float_wins[line] = nil
+    end
+  end
+  
+  -- Set keybindings for the floating window buffer
+  vim.keymap.set('n', 'q', close_float, { buffer = popup_bufnr, desc = 'Close comment thread' })
+  vim.keymap.set('n', '<Esc>', close_float, { buffer = popup_bufnr, desc = 'Close comment thread' })
 
   -- Add highlights to the popup
   for i, line in ipairs(content) do
