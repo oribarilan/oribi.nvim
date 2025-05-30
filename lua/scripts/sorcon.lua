@@ -226,8 +226,11 @@ local function pick_pr()
       )
       print(details)
       
-      -- Show diff for first changed file
-      show_pr_diff(selected_pr)
+      -- Store current PR globally for panel access
+      _G.current_pr = selected_pr
+      
+      -- Open PR review panel instead of diff
+      open_pr_review_panel(selected_pr)
     end
   end)
 end
@@ -319,6 +322,327 @@ vim.keymap.set('n', '<leader>pr', function()
   pick_pr()
 end, { desc = 'List Azure PRs' })
 
+-- PR Review Panel state
+local review_panel_state = {
+  threads_winnr = nil,
+  threads_bufnr = nil,
+  files_winnr = nil,
+  files_bufnr = nil,
+  current_threads = {},
+  current_files = {},
+  active_panel = 'threads' -- 'threads' or 'files'
+}
+
+-- Create a simplified thread popup (reusable from panel)
+local function show_thread_popup(thread)
+  local content = {}
+  
+  -- Format each comment in the thread
+  for _, comment in ipairs(thread.comments) do
+    local author = format_author(comment.author and comment.author.displayName or "Unknown")
+    local date = comment.createdDate and comment.createdDate:sub(1, 10) or "Unknown date"
+    
+    table.insert(content, string.format("@%s", author))
+    table.insert(content, string.format("Posted on %s", date))
+    table.insert(content, "")
+    
+    -- Add comment content, preserving line breaks
+    local comment_text = comment.content or "No content"
+    for _, line in ipairs(vim.split(comment_text, "\n", { plain = true })) do
+      table.insert(content, line)
+    end
+    table.insert(content, string.rep("─", 30))
+  end
+  
+  -- Remove last separator
+  if #content > 0 then
+    table.remove(content)
+  end
+  
+  table.insert(content, "")
+  table.insert(content, "Press 'q' to close")
+
+  -- Show floating window with comments
+  local popup_bufnr, winnr = vim.lsp.util.open_floating_preview(content, 'markdown', {
+    border = 'rounded',
+    max_width = 80,
+    max_height = 20,
+    focus = true
+  })
+  
+  -- Add keybindings to close the floating window
+  local function close_float()
+    if vim.api.nvim_win_is_valid(winnr) then
+      vim.api.nvim_win_close(winnr, true)
+    end
+  end
+  
+  vim.keymap.set('n', 'q', close_float, { buffer = popup_bufnr, desc = 'Close comment thread' })
+  vim.keymap.set('n', '<Esc>', close_float, { buffer = popup_bufnr, desc = 'Close comment thread' })
+
+  -- Add highlights to the popup
+  for i, line in ipairs(content) do
+    if line:match("^@") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'SorconCommentAuthor', i-1, 0, -1)
+    elseif line:match("^Posted on") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'SorconCommentDate', i-1, 0, -1)
+    end
+  end
+end
+
+-- Get list of changed files in PR (placeholder - would need backend implementation)
+local function get_pr_files(pr)
+  -- This is a placeholder - in real implementation, you'd fetch from Azure DevOps API
+  -- For now, return a sample list
+  return {
+    { path = "/src/eligible_pop_calculation/classes/inference_metrics.py", status = "added" },
+    { path = "/src/projects/metrics_efficacy/efficacy_metric_handler.py", status = "modified" },
+    { path = "/tests/test_inference.py", status = "modified" },
+    { path = "/docs/readme.md", status = "modified" }
+  }
+end
+
+-- Create PR review panel with threads and files using real vim splits
+local function open_pr_review_panel(pr)
+  -- Get threads and files
+  local threads = backend.get_threads and backend.get_threads(pr) or {}
+  local files = get_pr_files(pr)
+  
+  review_panel_state.current_threads = threads
+  review_panel_state.current_files = files
+  
+  -- Open a new tab for the PR review
+  vim.cmd('tabnew')
+  
+  -- Create vertical split for panel on the right
+  vim.cmd('vnew')
+  
+  -- Create threads buffer (upper split)
+  review_panel_state.threads_bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_option(review_panel_state.threads_bufnr, 'buftype', 'nofile')
+  vim.api.nvim_buf_set_option(review_panel_state.threads_bufnr, 'modifiable', true)
+  vim.api.nvim_buf_set_name(review_panel_state.threads_bufnr, 'PR-Threads')
+  
+  -- Format threads content
+  local threads_content = {}
+  table.insert(threads_content, "PR Comment Threads")
+  table.insert(threads_content, string.rep("─", 50))
+  table.insert(threads_content, "")
+  
+  if #threads > 0 then
+    for i, thread in ipairs(threads) do
+      local file_path = thread.threadContext and thread.threadContext.filePath or "Unknown file"
+      local line_num = thread.threadContext and thread.threadContext.rightFileStart and thread.threadContext.rightFileStart.line or "?"
+      local comment_count = #thread.comments
+      local latest_comment = thread.comments[#thread.comments]
+      local author = latest_comment and latest_comment.author and latest_comment.author.displayName or "Unknown"
+      
+      local short_file = file_path:match("([^/]+)$") or file_path
+      local thread_line = string.format("%d. %s:%s - %d comment%s by @%s",
+        i,
+        short_file,
+        line_num,
+        comment_count,
+        comment_count > 1 and "s" or "",
+        format_author(author)
+      )
+      table.insert(threads_content, thread_line)
+    end
+  else
+    table.insert(threads_content, "No comment threads found")
+  end
+  
+  table.insert(threads_content, "")
+  table.insert(threads_content, "j/k - navigate | l - open thread | Ctrl+hjkl - switch windows")
+  
+  vim.api.nvim_buf_set_lines(review_panel_state.threads_bufnr, 0, -1, false, threads_content)
+  vim.api.nvim_buf_set_option(review_panel_state.threads_bufnr, 'modifiable', false)
+  
+  -- Set threads buffer in current window
+  vim.api.nvim_win_set_buf(0, review_panel_state.threads_bufnr)
+  review_panel_state.threads_winnr = vim.api.nvim_get_current_win()
+  
+  -- Create horizontal split below for files
+  vim.cmd('split')
+  
+  -- Create files buffer (lower split)
+  review_panel_state.files_bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_option(review_panel_state.files_bufnr, 'buftype', 'nofile')
+  vim.api.nvim_buf_set_option(review_panel_state.files_bufnr, 'modifiable', true)
+  vim.api.nvim_buf_set_name(review_panel_state.files_bufnr, 'PR-Files')
+  
+  -- Format files content
+  local files_content = {}
+  table.insert(files_content, "Changed Files")
+  table.insert(files_content, string.rep("─", 50))
+  table.insert(files_content, "")
+  
+  for i, file in ipairs(files) do
+    local status_icon = file.status == "added" and "+" or file.status == "modified" and "~" or "?"
+    local short_path = file.path:match("([^/]+)$") or file.path
+    local file_line = string.format("%d. [%s] %s", i, status_icon, short_path)
+    table.insert(files_content, file_line)
+  end
+  
+  table.insert(files_content, "")
+  table.insert(files_content, "j/k - navigate | l - open diff | Ctrl+hjkl - switch windows")
+  
+  vim.api.nvim_buf_set_lines(review_panel_state.files_bufnr, 0, -1, false, files_content)
+  vim.api.nvim_buf_set_option(review_panel_state.files_bufnr, 'modifiable', false)
+  
+  -- Set files buffer in current window
+  vim.api.nvim_win_set_buf(0, review_panel_state.files_bufnr)
+  review_panel_state.files_winnr = vim.api.nvim_get_current_win()
+  
+  -- Go back to threads window and set cursor
+  vim.api.nvim_set_current_win(review_panel_state.threads_winnr)
+  if #threads > 0 then
+    vim.api.nvim_win_set_cursor(review_panel_state.threads_winnr, {4, 0})
+  end
+  
+  -- Setup keybindings
+  setup_review_panel_keybindings()
+end
+
+-- Setup keybindings for the review panel
+local function setup_review_panel_keybindings()
+  local function close_review_panel()
+    -- Close the entire tab since we're using real vim splits
+    vim.cmd('tabclose')
+    review_panel_state = {
+      threads_winnr = nil,
+      threads_bufnr = nil,
+      files_winnr = nil,
+      files_bufnr = nil,
+      current_threads = {},
+      current_files = {},
+      active_panel = 'threads'
+    }
+  end
+  
+  -- Threads panel keybindings
+  if review_panel_state.threads_bufnr then
+    vim.keymap.set('n', 'q', close_review_panel, { buffer = review_panel_state.threads_bufnr, desc = 'Close review panel' })
+    
+    vim.keymap.set('n', 'l', function()
+      local cursor = vim.api.nvim_win_get_cursor(review_panel_state.threads_winnr)
+      local thread_idx = cursor[1] - 3
+      if thread_idx >= 1 and thread_idx <= #review_panel_state.current_threads then
+        local selected_thread = review_panel_state.current_threads[thread_idx]
+        show_thread_popup(selected_thread)
+      end
+    end, { buffer = review_panel_state.threads_bufnr, desc = 'Open selected thread' })
+    
+    vim.keymap.set('n', 'j', function()
+      local cursor = vim.api.nvim_win_get_cursor(review_panel_state.threads_winnr)
+      local max_line = 3 + #review_panel_state.current_threads
+      if cursor[1] < max_line then
+        vim.api.nvim_win_set_cursor(review_panel_state.threads_winnr, {cursor[1] + 1, 0})
+      end
+    end, { buffer = review_panel_state.threads_bufnr, desc = 'Next thread' })
+    
+    vim.keymap.set('n', 'k', function()
+      local cursor = vim.api.nvim_win_get_cursor(review_panel_state.threads_winnr)
+      if cursor[1] > 4 then
+        vim.api.nvim_win_set_cursor(review_panel_state.threads_winnr, {cursor[1] - 1, 0})
+      end
+    end, { buffer = review_panel_state.threads_bufnr, desc = 'Previous thread' })
+  end
+  
+  -- Files panel keybindings
+  if review_panel_state.files_bufnr then
+    vim.keymap.set('n', 'q', close_review_panel, { buffer = review_panel_state.files_bufnr, desc = 'Close review panel' })
+    
+    vim.keymap.set('n', 'l', function()
+      local cursor = vim.api.nvim_win_get_cursor(review_panel_state.files_winnr)
+      local file_idx = cursor[1] - 3
+      if file_idx >= 1 and file_idx <= #review_panel_state.current_files then
+        local selected_file = review_panel_state.current_files[file_idx]
+        show_file_diff(selected_file, _G.current_pr)
+      end
+    end, { buffer = review_panel_state.files_bufnr, desc = 'Open selected file diff' })
+    
+    vim.keymap.set('n', 'j', function()
+      local cursor = vim.api.nvim_win_get_cursor(review_panel_state.files_winnr)
+      local max_line = 3 + #review_panel_state.current_files
+      if cursor[1] < max_line then
+        vim.api.nvim_win_set_cursor(review_panel_state.files_winnr, {cursor[1] + 1, 0})
+      end
+    end, { buffer = review_panel_state.files_bufnr, desc = 'Next file' })
+    
+    vim.keymap.set('n', 'k', function()
+      local cursor = vim.api.nvim_win_get_cursor(review_panel_state.files_winnr)
+      if cursor[1] > 4 then
+        vim.api.nvim_win_set_cursor(review_panel_state.files_winnr, {cursor[1] - 1, 0})
+      end
+    end, { buffer = review_panel_state.files_bufnr, desc = 'Previous file' })
+  end
+end
+
+-- Show diff for a specific file
+local function show_file_diff(file, pr)
+  -- Get source branch content
+  local source_ref = string.format('origin/%s', pr.sourceRefName:gsub('^refs/heads/', ''))
+  local pr_content = backend.fetch_file_content(file.path, source_ref)
+  
+  if not pr_content then
+    vim.notify('Failed to fetch PR file content', vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Get main branch content (may be nil for new files)
+  local main_content = backend.fetch_file_content(file.path, 'origin/main')
+  
+  -- If file doesn't exist in main branch, it's a new file - use empty content
+  if not main_content then
+    main_content = ""
+    vim.notify(string.format('File %s is new (not in main branch)', file.path), vim.log.levels.INFO)
+  end
+  
+  -- Create temporary files
+  local tmp_pr = os.tmpname()
+  local tmp_main = os.tmpname()
+  
+  local f = io.open(tmp_pr, 'w')
+  f:write(pr_content)
+  f:close()
+  
+  f = io.open(tmp_main, 'w')
+  f:write(main_content)
+  f:close()
+  
+  -- Move to the left side of the split (where empty buffer should be)
+  vim.cmd('wincmd h')
+  
+  -- Open diff view in the left area
+  vim.cmd('edit ' .. tmp_main)
+  local main_bufnr = vim.api.nvim_get_current_buf()
+  vim.cmd('vertical diffsplit ' .. tmp_pr)
+  local pr_bufnr = vim.api.nvim_get_current_buf()
+  
+  -- Show comments on the PR buffer (right side) since that's where the content is
+  show_pr_comments(pr, pr_bufnr)
+  
+  -- Clean up temp files when buffers are closed
+  vim.api.nvim_create_autocmd('BufUnload', {
+    pattern = {tmp_main, tmp_pr},
+    callback = function()
+      os.remove(tmp_main)
+      os.remove(tmp_pr)
+    end,
+    once = true
+  })
+end
+
 vim.keymap.set('n', '<leader>pc', function()
   toggle_thread()
 end, { desc = 'Toggle PR comment thread' })
+
+vim.keymap.set('n', '<leader>pt', function()
+  -- Get current PR
+  if _G.current_pr then
+    open_pr_review_panel(_G.current_pr)
+  else
+    vim.notify('No PR selected. Use <leader>pr to select a PR first.', vim.log.levels.WARN)
+  end
+end, { desc = 'Open PR review panel' })
