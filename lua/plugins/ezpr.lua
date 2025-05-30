@@ -42,6 +42,13 @@ return {
       test = ezpr_test
     }
     
+    -- Set up keymaps
+    local opts = { noremap = true, silent = true }
+    
+    -- Main PR operations
+    vim.keymap.set('n', '<leader>pp', '<cmd>EzprListPRs<cr>', vim.tbl_extend('force', opts, { desc = 'List pull requests' }))
+    vim.keymap.set('n', '<leader>pd', '<cmd>EzprOpenDiscussion<cr>', vim.tbl_extend('force', opts, { desc = 'Open discussion at cursor' }))
+    
     -- Plugin initialized silently
   end,
   -- Plugin dependencies (if any)
