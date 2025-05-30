@@ -23,6 +23,7 @@ return {
   cmd = {
     "EzprLogin",
     "EzprListPRs",
+    "EzprDiscussions",
     "EzprStatus",
     "EzprLogout"
   },

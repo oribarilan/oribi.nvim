@@ -391,7 +391,192 @@ function M.setup_commands()
     desc = 'Logout from Azure DevOps',
   })
 
+  -- Command to fetch discussions for a PR
+  vim.api.nvim_create_user_command('EzprDiscussions', function(opts)
+    local pr_id = tonumber(opts.args)
+    if not pr_id then
+      print('✗ Please provide a PR ID: :EzprDiscussions <pr_id>')
+      return
+    end
+    
+    print('Fetching discussions for PR #' .. pr_id .. '...')
+    local result = M.fetch_discussions(pr_id)
+    
+    if result.success then
+      if #result.discussions == 0 then
+        print('ℹ No discussions found for PR #' .. pr_id)
+      else
+        print('✓ Found ' .. result.total_count .. ' discussion(s) for PR #' .. pr_id .. ':')
+        
+        for i, discussion in ipairs(result.discussions) do
+          local context_info = ""
+          if discussion.context then
+            local file_name = discussion.context.file_path:match("([^/]+)$") or discussion.context.file_path
+            context_info = string.format(" (%s:%d)", file_name, discussion.context.line_number)
+          end
+          
+          local author = discussion.comments[1].author.name
+          local comment_count = #discussion.comments
+          print(string.format('  %d. %s%s - %d comment%s by @%s',
+            i,
+            discussion.status,
+            context_info,
+            comment_count,
+            comment_count > 1 and "s" or "",
+            author
+          ))
+        end
+      end
+    else
+      print('✗ Failed to fetch discussions: ' .. (result.error or 'unknown error'))
+    end
+  end, {
+    nargs = 1,
+    desc = 'Fetch discussions for a pull request by ID',
+  })
+
   -- Commands registered silently
+end
+
+-- Fetch all discussions/threads for a given pull request
+function M.fetch_discussions(pr_id)
+  -- Ensure we're authenticated
+  if not is_auth_valid() then
+    local auth_result = M.auth()
+    if not auth_result.success then
+      return {
+        success = false,
+        error = 'Authentication failed: ' .. (auth_result.error or 'unknown error'),
+      }
+    end
+  end
+
+  local token, err = ensure_token()
+  if err then
+    return {
+      success = false,
+      error = 'Failed to get Azure token: ' .. err,
+    }
+  end
+
+  local organization, project, repo = auth_state.organization, auth_state.project, auth_state.repo
+  
+  local url = string.format(
+    'https://dev.azure.com/%s/%s/_apis/git/repositories/%s/pullRequests/%d/threads?api-version=7.1',
+    organization, project, repo, pr_id
+  )
+  
+  local cmd = string.format('curl -s -H "Authorization: Bearer %s" "%s"', token, url)
+  local handle = io.popen(cmd)
+  
+  if not handle then
+    return {
+      success = false,
+      error = 'Failed to execute curl command',
+    }
+  end
+
+  local response = handle:read('*a')
+  handle:close()
+
+  -- Try to clean any BOM or whitespace
+  response = response:gsub("^%s*", ""):gsub("^%z+", "")
+
+  -- Parse JSON response
+  local ok, parsed = pcall(vim.json.decode, response)
+  if not ok then
+    return {
+      success = false,
+      error = 'JSON parse error: ' .. tostring(parsed),
+    }
+  end
+  
+  if not parsed.value then
+    return {
+      success = true,
+      discussions = {},
+      message = 'No discussions found',
+    }
+  end
+
+  -- Transform Azure DevOps threads to generic discussion format
+  local discussions = {}
+  for _, thread in ipairs(parsed.value) do
+    if not thread.isDeleted and thread.comments and #thread.comments > 0 then
+      local discussion = {
+        id = thread.id,
+        status = thread.status or "active",
+        created_at = thread.comments[1].createdDate,
+        updated_at = thread.comments[#thread.comments].lastUpdatedDate or thread.comments[#thread.comments].createdDate,
+        comments = {},
+        context = nil, -- Will be set if this is a code comment
+      }
+      
+      -- Add context information if this is a code comment
+      if thread.threadContext and
+         type(thread.threadContext) == "table" and
+         thread.threadContext.rightFileStart then
+        discussion.context = {
+          file_path = thread.threadContext.filePath,
+          line_number = thread.threadContext.rightFileStart.line,
+          side = "right", -- Azure DevOps context
+        }
+      end
+      
+      -- Transform comments to generic format
+      for _, comment in ipairs(thread.comments) do
+        if not comment.isDeleted then
+          table.insert(discussion.comments, {
+            id = comment.id,
+            content = comment.content or "",
+            author = {
+              name = comment.author and comment.author.displayName or "Unknown",
+              email = comment.author and comment.author.uniqueName or "",
+              avatar_url = comment.author and comment.author.imageUrl or "",
+            },
+            created_at = comment.createdDate,
+            updated_at = comment.lastUpdatedDate or comment.createdDate,
+          })
+        end
+      end
+      
+      -- Only add discussions that have non-deleted comments
+      if #discussion.comments > 0 then
+        table.insert(discussions, discussion)
+      end
+    end
+  end
+
+  return {
+    success = true,
+    discussions = discussions,
+    total_count = #discussions,
+  }
+end
+
+-- Get discussions for a specific file and line (code comments only)
+function M.fetch_file_discussions(pr_id, file_path, line_number)
+  local result = M.fetch_discussions(pr_id)
+  if not result.success then
+    return result
+  end
+  
+  local file_discussions = {}
+  for _, discussion in ipairs(result.discussions) do
+    if discussion.context and
+       discussion.context.file_path == file_path and
+       (not line_number or discussion.context.line_number == line_number) then
+      table.insert(file_discussions, discussion)
+    end
+  end
+  
+  return {
+    success = true,
+    discussions = file_discussions,
+    total_count = #file_discussions,
+    file_path = file_path,
+    line_number = line_number,
+  }
 end
 
 return M
