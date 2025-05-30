@@ -17,6 +17,11 @@ return {
       ezpr_ui.show_pr_picker()
     end, { desc = "List and select pull requests" })
     
+    -- Add command to open discussion at cursor
+    vim.api.nvim_create_user_command("EzprOpenDiscussion", function()
+      ezpr_ui.open_discussion_at_cursor()
+    end, { desc = "Open discussion at current cursor position" })
+    
     -- Set up UI commands
     vim.api.nvim_create_user_command("EzprUI", function()
       ezpr_ui.toggle_layout()

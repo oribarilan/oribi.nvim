@@ -376,6 +376,9 @@ end
 
 -- Clean up existing diff buffers and temporary files
 function M.cleanup_existing_diff()
+  -- Clear discussion indicators first
+  M.clear_discussion_indicators()
+  
   -- Clean up previous temp files
   if M.state.temp_files then
     for _, tmp_file in ipairs(M.state.temp_files) do
@@ -476,6 +479,9 @@ function M.load_file_discussions_for_file(file)
     vim.api.nvim_buf_set_lines(M.state.discussions_buf, 0, -1, false, discussion_lines)
     vim.api.nvim_buf_set_option(M.state.discussions_buf, 'modifiable', false)
   end
+  
+  -- Add virtual text indicators for discussions in the main buffer
+  M.add_discussion_indicators(discussions)
 end
 
 -- Select a discussion from the discussions panel
@@ -699,6 +705,144 @@ end
 -- Get current state (for debugging/external access)
 function M.get_state()
   return M.state
+end
+
+-- Add virtual text indicators for discussions
+function M.add_discussion_indicators(discussions)
+  -- Clear any existing discussion indicators
+  M.clear_discussion_indicators()
+  
+  -- Create namespace for discussion indicators
+  M.state.discussion_ns = vim.api.nvim_create_namespace('ezpr_discussions')
+  
+  -- Create highlight groups if they don't exist
+  vim.api.nvim_set_hl(0, 'EzprDiscussionIndicator', { fg = '#61afef', bold = true })
+  vim.api.nvim_set_hl(0, 'EzprDiscussionAuthor', { fg = '#98c379', bold = true })
+  
+  -- Store discussion data by line number for quick lookup
+  M.state.discussions_by_line = {}
+  
+  -- Add indicators for each discussion
+  for _, discussion in ipairs(discussions) do
+    if discussion.context and discussion.context.line_number then
+      local line_num = discussion.context.line_number - 1  -- Convert to 0-based
+      local comment_count = discussion.comments and #discussion.comments or 0
+      local author = "Unknown"
+      
+      if discussion.comments and #discussion.comments > 0 and discussion.comments[1].author then
+        local author_name = discussion.comments[1].author.name or "Unknown"
+        if #author_name > 15 then
+          author = author_name:sub(1, 12) .. "..."
+        else
+          author = author_name
+        end
+      end
+      
+      -- Create virtual text
+      local virt_text = string.format("💬 %d comment%s by %s",
+        comment_count, comment_count == 1 and "" or "s", author)
+      
+      -- Add virtual text to the relevant buffer (PR buffer for side-by-side, main buffer for single file)
+      local target_buf = M.state.pr_buf or M.state.main_buf
+      if target_buf and vim.api.nvim_buf_is_valid(target_buf) then
+        local buf_line_count = vim.api.nvim_buf_line_count(target_buf)
+        if line_num < buf_line_count then
+          vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
+            virt_text = {{ virt_text, "EzprDiscussionIndicator" }},
+            virt_text_pos = "eol"
+          })
+          
+          -- Store discussion data for quick lookup
+          M.state.discussions_by_line[line_num + 1] = discussion  -- Store with 1-based line numbers
+        end
+      end
+    end
+  end
+end
+
+-- Clear existing discussion indicators
+function M.clear_discussion_indicators()
+  if M.state.discussion_ns then
+    -- Clear from PR buffer if it exists
+    if M.state.pr_buf and vim.api.nvim_buf_is_valid(M.state.pr_buf) then
+      vim.api.nvim_buf_clear_namespace(M.state.pr_buf, M.state.discussion_ns, 0, -1)
+    end
+    -- Clear from main buffer if it exists
+    if M.state.main_buf and vim.api.nvim_buf_is_valid(M.state.main_buf) then
+      vim.api.nvim_buf_clear_namespace(M.state.main_buf, M.state.discussion_ns, 0, -1)
+    end
+  end
+  M.state.discussions_by_line = {}
+end
+
+-- Open discussion at current cursor position
+function M.open_discussion_at_cursor()
+  local cursor_line = vim.api.nvim_win_get_cursor(0)[1]  -- 1-based line number
+  local discussion = M.state.discussions_by_line and M.state.discussions_by_line[cursor_line]
+  
+  if not discussion then
+    vim.notify("No discussion found at current line", vim.log.levels.WARN)
+    return
+  end
+  
+  M.show_discussion_popup(discussion)
+end
+
+-- Show discussion in a popup window
+function M.show_discussion_popup(discussion)
+  local content = {}
+  
+  -- Format each comment in the discussion
+  for _, comment in ipairs(discussion.comments or {}) do
+    local author = comment.author and comment.author.name or "Unknown"
+    local date = comment.created_at and comment.created_at:sub(1, 10) or "Unknown date"
+    
+    table.insert(content, string.format("@%s", author))
+    table.insert(content, string.format("Posted on %s", date))
+    table.insert(content, "")
+    
+    -- Add comment content, preserving line breaks
+    local comment_text = comment.content or "No content"
+    for _, line in ipairs(vim.split(comment_text, "\n", { plain = true })) do
+      table.insert(content, line)
+    end
+    table.insert(content, string.rep("─", 30))
+  end
+  
+  -- Remove last separator
+  if #content > 0 then
+    table.remove(content)
+  end
+  
+  table.insert(content, "")
+  table.insert(content, "Press 'q' or ESC to close")
+
+  -- Show floating window with comments
+  local popup_bufnr, winnr = vim.lsp.util.open_floating_preview(content, 'markdown', {
+    border = 'rounded',
+    max_width = 80,
+    max_height = 20,
+    focus = true
+  })
+  
+  -- Add keybindings to close the floating window
+  local function close_float()
+    if vim.api.nvim_win_is_valid(winnr) then
+      vim.api.nvim_win_close(winnr, true)
+    end
+  end
+  
+  vim.keymap.set('n', 'q', close_float, { buffer = popup_bufnr, desc = 'Close discussion' })
+  vim.keymap.set('n', '<Esc>', close_float, { buffer = popup_bufnr, desc = 'Close discussion' })
+
+  -- Add highlights to the popup
+  for i, line in ipairs(content) do
+    if line:match("^@") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'EzprDiscussionAuthor', i-1, 0, -1)
+    elseif line:match("^Posted on") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Comment', i-1, 0, -1)
+    end
+  end
 end
 
 return M
