@@ -723,15 +723,20 @@ function M.add_discussion_indicators(discussions)
   -- Store discussion data by line number for quick lookup
   M.state.discussions_by_line = {}
   
-  -- Group discussions by line number first
+  -- Group discussions by line number first (handle multi-line discussions)
   local discussions_by_line_temp = {}
   for _, discussion in ipairs(discussions) do
-    if discussion.context and discussion.context.line_number then
-      local line_num = discussion.context.line_number
-      if not discussions_by_line_temp[line_num] then
-        discussions_by_line_temp[line_num] = {}
+    if discussion.context and discussion.context.start_line then
+      local start_line = discussion.context.start_line
+      local end_line = discussion.context.end_line or start_line
+      
+      -- Add discussion to all lines it spans
+      for line_num = start_line, end_line do
+        if not discussions_by_line_temp[line_num] then
+          discussions_by_line_temp[line_num] = {}
+        end
+        table.insert(discussions_by_line_temp[line_num], discussion)
       end
-      table.insert(discussions_by_line_temp[line_num], discussion)
     end
   end
   
@@ -750,32 +755,81 @@ function M.add_discussion_indicators(discussions)
         
         -- Add highlights for each discussion's text range
         for _, discussion in ipairs(line_discussions) do
-          local start_col = discussion.context.start_column or 0
+          local start_line = discussion.context.start_line or discussion.context.line_number
+          local end_line = discussion.context.end_line or start_line
+          local start_col = discussion.context.start_column
           local end_col = discussion.context.end_column
           
-          -- If we have character position information, highlight the specific text range
-          if start_col and end_col and end_col > start_col then
-            -- Validate and clamp column positions to line bounds
-            start_col = math.max(0, math.min(start_col, line_length))
-            end_col = math.max(start_col, math.min(end_col, line_length))
-            
-            -- Only add highlights if we have a valid range
-            if start_col < line_length and end_col > start_col then
-              -- Highlight the specific text range
-              vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, start_col, {
-                end_col = end_col,
-                hl_group = "EzprDiscussionHighlight"
-              })
+          -- Skip if we don't have valid line information
+          if not start_line or not end_line then
+            goto continue
+          end
+          
+          -- Handle multi-line discussions
+          if start_line == end_line and start_line == line_number then
+            -- Single line discussion on current line
+            if start_col and end_col and start_col >= 0 and end_col > start_col then
+              -- Validate and clamp column positions to line bounds
+              local clamped_start = math.max(0, math.min(start_col, line_length))
+              local clamped_end = math.max(clamped_start + 1, math.min(end_col, line_length))
+              
+              -- Only add highlights if we have a valid range within the line
+              if clamped_start < line_length and clamped_end > clamped_start then
+                vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, clamped_start, {
+                  end_col = clamped_end,
+                  hl_group = "EzprDiscussionHighlight"
+                })
+              end
+            elseif start_col and start_col >= 0 and not end_col then
+              -- Only start column provided, highlight from start to end of line
+              local clamped_start = math.max(0, math.min(start_col, line_length))
+              if clamped_start < line_length then
+                vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, clamped_start, {
+                  end_col = line_length,
+                  hl_group = "EzprDiscussionHighlight"
+                })
+              end
+            else
+              -- Fallback: highlight entire line if column info is missing or invalid
+              if line_length > 0 then
+                vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
+                  end_col = line_length,
+                  hl_group = "EzprDiscussionHighlight"
+                })
+              end
             end
-          else
-            -- Fallback: highlight entire line if no specific range available
-            if line_length > 0 then
-              vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
-                end_col = line_length,
-                hl_group = "EzprDiscussionHighlight"
-              })
+          elseif start_line < end_line and start_line <= line_number and line_number <= end_line then
+            -- Multi-line discussion and current line is within range
+            if line_number == start_line then
+              -- First line: highlight from start_col to end of line
+              local highlight_start = math.max(0, math.min(start_col or 0, line_length))
+              if highlight_start < line_length then
+                vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, highlight_start, {
+                  end_col = line_length,
+                  hl_group = "EzprDiscussionHighlight"
+                })
+              end
+            elseif line_number == end_line then
+              -- Last line: highlight from beginning to end_col
+              local highlight_end = math.max(1, math.min(end_col or line_length, line_length))
+              if highlight_end > 0 then
+                vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
+                  end_col = highlight_end,
+                  hl_group = "EzprDiscussionHighlight"
+                })
+              end
+            else
+              -- Middle line: highlight entire line
+              if line_length > 0 then
+                vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
+                  end_col = line_length,
+                  hl_group = "EzprDiscussionHighlight"
+                })
+              end
             end
           end
+          
+          ::continue::
         end
         
         -- Add single virtual text at end of line showing total discussions
@@ -835,7 +889,9 @@ end
 
 -- Open discussion at current cursor position
 function M.open_discussion_at_cursor()
-  local cursor_line = vim.api.nvim_win_get_cursor(0)[1]  -- 1-based line number
+  local cursor_pos = vim.api.nvim_win_get_cursor(0)
+  local cursor_line = cursor_pos[1]  -- 1-based line number
+  local cursor_col = cursor_pos[2]   -- 0-based column number
   
   local discussions_on_line = M.state.discussions_by_line and M.state.discussions_by_line[cursor_line]
   
@@ -844,8 +900,55 @@ function M.open_discussion_at_cursor()
     return
   end
   
-  -- Show all discussions on this line
-  M.show_line_discussions_popup(discussions_on_line, cursor_line)
+  -- Filter discussions to those that actually contain the cursor position
+  local relevant_discussions = {}
+  for _, discussion in ipairs(discussions_on_line) do
+    local start_line = discussion.context.start_line or discussion.context.line_number
+    local end_line = discussion.context.end_line or start_line
+    local start_col = discussion.context.start_column
+    local end_col = discussion.context.end_column
+    
+    -- Skip if we don't have valid line information
+    if not start_line or not end_line then
+      goto continue_cursor
+    end
+    
+    local cursor_in_discussion = false
+    
+    if start_line == end_line and start_line == cursor_line then
+      -- Single line discussion
+      if start_col and end_col and start_col >= 0 and end_col > start_col then
+        cursor_in_discussion = cursor_col >= start_col and cursor_col < end_col
+      elseif start_col and start_col >= 0 and not end_col then
+        cursor_in_discussion = cursor_col >= start_col
+      else
+        cursor_in_discussion = true -- No valid column info, assume entire line
+      end
+    elseif start_line < end_line and start_line <= cursor_line and cursor_line <= end_line then
+      -- Multi-line discussion
+      if cursor_line == start_line then
+        cursor_in_discussion = cursor_col >= (start_col or 0)
+      elseif cursor_line == end_line then
+        cursor_in_discussion = cursor_col < (end_col or math.huge)
+      else
+        cursor_in_discussion = true -- Middle line
+      end
+    end
+    
+    if cursor_in_discussion then
+      table.insert(relevant_discussions, discussion)
+    end
+    
+    ::continue_cursor::
+  end
+  
+  if #relevant_discussions == 0 then
+    -- Show all discussions on line if cursor isn't in specific range
+    relevant_discussions = discussions_on_line
+  end
+  
+  -- Show relevant discussions
+  M.show_line_discussions_popup(relevant_discussions, cursor_line)
 end
 
 -- Show all discussions for a line in a popup window
@@ -860,8 +963,27 @@ function M.show_line_discussions_popup(discussions, line_number)
     table.insert(content, string.format("Discussion %d:", i))
     
     -- Show discussion context if available
-    if discussion.context and discussion.context.start_column and discussion.context.end_column then
-      table.insert(content, string.format("  Range: columns %d-%d", discussion.context.start_column, discussion.context.end_column))
+    if discussion.context then
+      local start_line = discussion.context.start_line or discussion.context.line_number
+      local end_line = discussion.context.end_line or start_line
+      local start_col = discussion.context.start_column
+      local end_col = discussion.context.end_column
+      
+      if start_line == end_line then
+        -- Single line
+        if start_col and end_col then
+          table.insert(content, string.format("  Range: line %d, columns %d-%d", start_line, start_col, end_col))
+        else
+          table.insert(content, string.format("  Range: line %d (entire line)", start_line))
+        end
+      else
+        -- Multi-line
+        if start_col and end_col then
+          table.insert(content, string.format("  Range: lines %d-%d, from col %d to col %d", start_line, end_line, start_col, end_col))
+        else
+          table.insert(content, string.format("  Range: lines %d-%d", start_line, end_line))
+        end
+      end
     end
     table.insert(content, "")
     

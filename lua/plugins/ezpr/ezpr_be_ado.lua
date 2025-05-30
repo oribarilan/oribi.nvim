@@ -518,10 +518,13 @@ function M.fetch_discussions(pr_id)
          thread.threadContext.rightFileStart then
         discussion.context = {
           file_path = thread.threadContext.filePath,
-          line_number = thread.threadContext.rightFileStart.line,
+          start_line = thread.threadContext.rightFileStart.line,
           start_column = thread.threadContext.rightFileStart.offset,
+          end_line = thread.threadContext.rightFileEnd and thread.threadContext.rightFileEnd.line or thread.threadContext.rightFileStart.line,
           end_column = thread.threadContext.rightFileEnd and thread.threadContext.rightFileEnd.offset,
           side = "right", -- Azure DevOps context
+          -- Keep line_number for backward compatibility
+          line_number = thread.threadContext.rightFileStart.line,
         }
       end
       

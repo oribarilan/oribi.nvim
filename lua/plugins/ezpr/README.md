@@ -86,6 +86,8 @@ EZPR is now a fully functional pull request review tool with Azure DevOps backen
 4. **Reply to a discussion**: Implement functionality to reply to existing discussions
 5. **Change state of a discussion**: Add ability to resolve/unresolve discussions
 6. **Panel width optimization**: Adjust panels to be about 20% of total width
+7. **Remove excessive notifications**: Remove UI notifications for normal behavior (loading files, jumping to lines, etc.)
+8. **Loading indicators**: Add spinner or progress indicators when loading PRs, files, and discussions
 
 ## Setup Requirements
 
