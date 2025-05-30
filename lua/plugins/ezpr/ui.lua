@@ -96,6 +96,18 @@ function M.create_layout()
   vim.api.nvim_set_current_win(M.state.main_win)
   M.state.current_focus = 'main'
   
+  -- Resize windows to make right panels about 20% width
+  local total_width = vim.o.columns
+  local right_panel_width = math.floor(total_width * 0.2)
+  
+  -- Resize the right panel windows to 20% width
+  if M.state.discussions_win and vim.api.nvim_win_is_valid(M.state.discussions_win) then
+    vim.api.nvim_win_set_width(M.state.discussions_win, right_panel_width)
+  end
+  if M.state.files_win and vim.api.nvim_win_is_valid(M.state.files_win) then
+    vim.api.nvim_win_set_width(M.state.files_win, right_panel_width)
+  end
+  
   -- Setup only Enter key mappings for selection
   M.setup_buffer_keymaps()
 end
@@ -307,7 +319,7 @@ function M.create_side_by_side_diff(original_content, pr_content, file)
     once = true
   })
   
-  vim.notify("Loaded side-by-side diff: " .. filename, vim.log.levels.INFO)
+  -- File loaded successfully (no notification for normal operation)
 end
 
 -- Create single file view for new files
@@ -371,7 +383,7 @@ function M.create_single_file_view(content, file)
     once = true
   })
   
-  vim.notify("Loaded new file: " .. filename, vim.log.levels.INFO)
+  -- New file loaded successfully (no notification for normal operation)
 end
 
 -- Clean up existing diff buffers and temporary files
@@ -505,7 +517,7 @@ function M.select_discussion()
   if selected_discussion.context and selected_discussion.context.line_number then
     local line_num = selected_discussion.context.line_number
     M.jump_to_line_in_main(line_num)
-    vim.notify("Jumped to line " .. line_num, vim.log.levels.INFO)
+    -- Line jump successful (no notification for normal operation)
   else
     vim.notify("No line information for this discussion", vim.log.levels.WARN)
   end
@@ -541,13 +553,13 @@ function M.show_pr_picker()
   -- Parse the JSON response
   local prs_json = response.prs
   if not prs_json then
-    vim.notify("No pull request data received", vim.log.levels.INFO)
+    vim.notify("No pull request data received", vim.log.levels.WARN)
     return
   end
   
   local success, prs = pcall(vim.json.decode, prs_json)
   if not success or not prs or #prs == 0 then
-    vim.notify("No pull requests found", vim.log.levels.INFO)
+    vim.notify("No pull requests found", vim.log.levels.WARN)
     return
   end
 
@@ -607,7 +619,7 @@ function M.load_pr_data(pr)
   -- Load actual files from the PR
   M.load_pr_files(pr)
   
-  vim.notify("PR loaded: " .. pr.title, vim.log.levels.INFO)
+  -- PR loaded successfully (no notification for normal operation)
 end
 
 -- Load files for the current PR into the files panel
