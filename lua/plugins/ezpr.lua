@@ -6,13 +6,30 @@ return {
   config = function()
     -- Load the Azure DevOps backend module
     local ezpr_be_ado = require("plugins.ezpr.ezpr_be_ado")
+    local ezpr_ui = require("plugins.ezpr.ui")
+    local ezpr_test = require("plugins.ezpr.test_ui")
     
     -- Set up the commands
     ezpr_be_ado.setup_commands()
     
-    -- Optional: Store the module globally for easier access
+    -- Set up UI commands
+    vim.api.nvim_create_user_command("EzprUI", function()
+      ezpr_ui.toggle_layout()
+    end, { desc = "Toggle ezpr UI layout" })
+    
+    vim.api.nvim_create_user_command("EzprOpen", function()
+      ezpr_ui.create_layout()
+    end, { desc = "Open ezpr UI layout" })
+    
+    vim.api.nvim_create_user_command("EzprClose", function()
+      ezpr_ui.close_layout()
+    end, { desc = "Close ezpr UI layout" })
+    
+    -- Optional: Store the modules globally for easier access
     _G.ezpr = {
-      ado = ezpr_be_ado
+      ado = ezpr_be_ado,
+      ui = ezpr_ui,
+      test = ezpr_test
     }
     
     -- Plugin initialized silently
@@ -25,6 +42,11 @@ return {
     "EzprListPRs",
     "EzprDiscussions",
     "EzprStatus",
-    "EzprLogout"
+    "EzprLogout",
+    "EzprUI",
+    "EzprOpen",
+    "EzprClose",
+    "EzprTestUI",
+    "EzprDemoSelection"
   },
 }
