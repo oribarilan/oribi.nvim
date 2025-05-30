@@ -244,14 +244,20 @@ function M.load_file_discussions_for_file(file)
   else
     for i, discussion in ipairs(discussions) do
       local line_info = "?"
-      if discussion.threadContext and discussion.threadContext.rightFileStart then
-        line_info = "Line " .. discussion.threadContext.rightFileStart.line
+      if discussion.context and discussion.context.line_number then
+        line_info = discussion.context.line_number
       end
       
       local comment_count = discussion.comments and #discussion.comments or 0
       local author = "Unknown"
       if discussion.comments and #discussion.comments > 0 and discussion.comments[1].author then
-        author = discussion.comments[1].author.displayName or "Unknown"
+        local author_name = discussion.comments[1].author.name or "Unknown"
+        -- Format author name (truncate if too long)
+        if #author_name > 15 then
+          author = author_name:sub(1, 12) .. "..."
+        else
+          author = author_name
+        end
       end
       
       local line = string.format("%d. %s - %d comment%s by %s",
@@ -286,8 +292,8 @@ function M.select_discussion()
   local selected_discussion = M.state.discussions_data[discussion_index]
   
   -- Jump to the line in the main window if we have line context
-  if selected_discussion.threadContext and selected_discussion.threadContext.rightFileStart then
-    local line_num = selected_discussion.threadContext.rightFileStart.line
+  if selected_discussion.context and selected_discussion.context.line_number then
+    local line_num = selected_discussion.context.line_number
     M.jump_to_line_in_main(line_num)
     vim.notify("Jumped to line " .. line_num, vim.log.levels.INFO)
   else
