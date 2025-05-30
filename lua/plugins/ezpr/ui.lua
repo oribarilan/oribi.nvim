@@ -836,7 +836,7 @@ function M.add_discussion_indicators(discussions)
         local line_content = vim.api.nvim_buf_get_lines(target_buf, line_num, line_num + 1, false)[1] or ""
         local line_length = #line_content
         
-        -- Add highlights for each discussion's text range
+        -- Add highlights for each discussion's text range (only for active/pending)
         for _, discussion in ipairs(line_discussions) do
           local context = discussion.context
           local start_line = context.start_line or context.line_number
@@ -844,13 +844,34 @@ function M.add_discussion_indicators(discussions)
           local start_col = context.start_column
           local end_col = context.end_column
           
-          -- Determine highlight group based on discussion state
-          local hl_group = "EzprDiscussionHighlight"
-          if context.is_outdated then
-            hl_group = "EzprDiscussionHighlightOutdated"
-          elseif context.status == 4 then -- Fixed/Resolved in Azure DevOps
-            hl_group = "EzprDiscussionHighlightResolved"
+          -- Get the actual status for this discussion (same logic as elsewhere)
+          local disc_status = "active"  -- default
+          if discussion.status then
+            disc_status = discussion.status
+          elseif discussion.context and discussion.context.status then
+            -- Map Azure DevOps status codes to text
+            local status_map = {
+              [1] = "active",
+              [2] = "pending",
+              [3] = "won't fix",
+              [4] = "resolved",
+              [5] = "closed"
+            }
+            disc_status = status_map[discussion.context.status] or "active"
           end
+          
+          -- Check if outdated
+          if discussion.context and discussion.context.is_outdated then
+            disc_status = "outdated"
+          end
+          
+          -- Only highlight if discussion is active or pending
+          if not (disc_status == "active" or disc_status == "pending") then
+            goto continue
+          end
+          
+          -- Use standard highlight group for active/pending discussions
+          local hl_group = "EzprDiscussionHighlight"
           
           -- Skip if we don't have valid line information
           if not start_line or not end_line then
@@ -1004,9 +1025,24 @@ function M.add_discussion_indicators(discussions)
         
         local virt_text = table.concat(virt_parts, " | ")
         
+        -- Check if all discussions are non-active (closed)
+        local has_active_discussions = false
+        for _, entry in ipairs(discussion_entries) do
+          if entry.is_open then
+            has_active_discussions = true
+            break
+          end
+        end
+        
+        -- Choose highlight group based on whether there are active discussions
+        local hl_group = has_active_discussions and "EzprDiscussionIndicator" or "EzprDiscussionIndicatorInactive"
+        
+        -- Create highlight group for inactive discussions (darker color)
+        vim.api.nvim_set_hl(0, 'EzprDiscussionIndicatorInactive', { fg = '#6c757d', italic = true })
+        
         -- Add virtual line ABOVE the start line of the discussion
         vim.api.nvim_buf_set_extmark(target_buf, M.state.discussion_ns, line_num, 0, {
-          virt_lines = {{ { virt_text, "EzprDiscussionIndicator" } }},
+          virt_lines = {{ { virt_text, hl_group } }},
           virt_lines_above = true
         })
       end
