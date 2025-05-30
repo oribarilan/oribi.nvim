@@ -98,6 +98,11 @@ EZPR is now a fully functional pull request review tool with Azure DevOps backen
     - Add 'q' key binding to quit/close the floating window and return focus to main content
     - Enable scrolling and navigation within the discussion popup
     - Consider adding reply functionality directly from the popup
+11. **Timezone correction**: Fix timezone conversion in discussion popups (currently off by 1 hour)
+12. **Visual enhancement for inactive discussions**:
+    - Darken non-active discussions in the discussion panel (similar to virtual text)
+    - Darken non-active discussions in the files panel as well
+    - Use consistent visual hierarchy for active vs inactive states across all UI components
 
 ## Setup Requirements
 

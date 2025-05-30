@@ -1295,7 +1295,54 @@ function M.show_single_discussion_popup(discussion, line_number)
   -- Format each comment in the discussion
   for _, comment in ipairs(discussion.comments or {}) do
     local author = comment.author and comment.author.name or "Unknown"
-    local date = comment.created_at and comment.created_at:sub(1, 10) or "Unknown date"
+    
+    -- Function to convert UTC timestamp to local time
+    local function utc_to_local(utc_string)
+      if not utc_string then return "Unknown date" end
+      
+      -- Parse ISO 8601 format: "2025-05-30T19:59:44.86Z"
+      local year, month, day, hour, min, sec = utc_string:match("(%d%d%d%d)-(%d%d)-(%d%d)T(%d%d):(%d%d):(%d%d)")
+      
+      if not year then return utc_string end -- fallback to original if parsing fails
+      
+      -- Get local timezone offset
+      local now = os.time()
+      local utc_date = os.date("!*t", now)  -- UTC time
+      local local_date = os.date("*t", now) -- Local time
+      
+      -- Calculate timezone offset in seconds
+      local utc_time_seconds = os.time(utc_date)
+      local local_time_seconds = os.time(local_date)
+      local timezone_offset = local_time_seconds - utc_time_seconds
+      
+      -- Convert parsed UTC time to Unix timestamp
+      local utc_timestamp = os.time({
+        year = tonumber(year),
+        month = tonumber(month),
+        day = tonumber(day),
+        hour = tonumber(hour),
+        min = tonumber(min),
+        sec = tonumber(sec)
+      })
+      
+      -- Add timezone offset to get local time
+      local local_timestamp = utc_timestamp + timezone_offset
+      
+      -- Format as local time
+      return os.date("%Y-%m-%d %H:%M:%S", local_timestamp)
+    end
+    
+    -- Try Azure DevOps date field names and convert to local timezone
+    local date = "Unknown date"
+    if comment.updated_at then
+      date = utc_to_local(comment.updated_at)
+    elseif comment.publishedDate then
+      date = utc_to_local(comment.publishedDate)
+    elseif comment.createdDate then
+      date = utc_to_local(comment.createdDate)
+    elseif comment.created_at then
+      date = utc_to_local(comment.created_at)
+    end
     
     table.insert(content, string.format("@%s", author))
     table.insert(content, string.format("Posted on %s", date))
