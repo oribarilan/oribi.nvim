@@ -88,6 +88,16 @@ EZPR is now a fully functional pull request review tool with Azure DevOps backen
 6. ✅ **Panel width optimization**: Adjust panels to be about 20% of total width
 7. ✅ **Remove excessive notifications**: Remove UI notifications for normal behavior (loading files, jumping to lines, etc.)
 8. **Loading indicators**: Add spinner or progress indicators when loading PRs, files, and discussions
+9. **Enhanced thread state UI**: Improve discussion list presentation with better visual state indicators
+   - Grey out non-active threads (resolved/outdated) in the discussions panel
+   - Format discussion titles with better styling and state indicators
+   - Add icons or prefixes to clearly distinguish thread states (🟢 Active, ✅ Resolved, ⚠️ Outdated)
+   - Consider different text colors/weights for different states
+10. **Interactive discussion popup**: Enhance floating discussion window interaction
+    - Auto-focus cursor inside the floating discussion window when opened via `:EzprOpenDiscussion`
+    - Add 'q' key binding to quit/close the floating window and return focus to main content
+    - Enable scrolling and navigation within the discussion popup
+    - Consider adding reply functionality directly from the popup
 
 ## Setup Requirements
 
