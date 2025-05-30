@@ -185,36 +185,115 @@ function M.load_selected_file_content(file)
   -- Get the ADO backend
   local ado_backend = require("plugins.ezpr.ezpr_be_ado")
   
-  -- Fetch file content
-  local response = ado_backend.fetch_pr_file_content(M.state.pr_data.pullRequestId, file.path)
+  -- Fetch PR file content (new version)
+  local pr_response = ado_backend.fetch_pr_file_content(M.state.pr_data.pullRequestId, file.path)
   
-  if not response.success then
-    vim.notify("Failed to fetch file content: " .. (response.error or "Unknown error"), vim.log.levels.ERROR)
+  if not pr_response.success then
+    vim.notify("Failed to fetch PR file content: " .. (pr_response.error or "Unknown error"), vim.log.levels.ERROR)
     return
   end
   
-  -- Load content into main buffer
-  local content = response.content or ""
-  local lines = vim.split(content, '\n')
+  local pr_content = pr_response.content or ""
   
-  if M.state.main_buf and vim.api.nvim_buf_is_valid(M.state.main_buf) then
-    vim.api.nvim_buf_set_option(M.state.main_buf, 'modifiable', true)
-    vim.api.nvim_buf_set_lines(M.state.main_buf, 0, -1, false, lines)
-    vim.api.nvim_buf_set_option(M.state.main_buf, 'modifiable', false)
-    
-    -- Set buffer name to reflect the file
-    local filename = file.path:match("([^/]+)$") or file.path
-    vim.api.nvim_buf_set_name(M.state.main_buf, '[EZPR] ' .. filename)
-    
-    -- Try to set filetype based on extension
-    local extension = filename:match("%.([^%.]+)$")
-    if extension then
-      vim.api.nvim_buf_set_option(M.state.main_buf, 'filetype', extension)
-    end
-    
-    vim.notify("Loaded: " .. filename, vim.log.levels.INFO)
+  -- Get target branch content for comparison
+  local target_ref = M.state.pr_data.targetRefName and M.state.pr_data.targetRefName:gsub('^refs/heads/', '') or 'main'
+  
+  -- Try to get the original file content from target branch
+  local original_content = ""
+  local git_cmd = string.format("git show %s:%s 2>/dev/null", target_ref, file.path:gsub("^/", ""))
+  local handle = io.popen(git_cmd)
+  if handle then
+    original_content = handle:read("*a") or ""
+    handle:close()
   end
+  
+  -- If file doesn't exist in target branch, it's a new file
+  if original_content == "" and file.changeType == "add" then
+    original_content = ""
+  end
+  
+  -- Create side-by-side diff view
+  M.create_side_by_side_diff(original_content, pr_content, file)
 end
+
+-- Create side-by-side diff view in the main window area
+function M.create_side_by_side_diff(original_content, pr_content, file)
+  if not M.state.main_win or not vim.api.nvim_win_is_valid(M.state.main_win) then
+    return
+  end
+  
+  -- Focus the main window
+  vim.api.nvim_set_current_win(M.state.main_win)
+  
+  -- Create temporary files for the diff
+  local tmp_original = os.tmpname()
+  local tmp_pr = os.tmpname()
+  
+  -- Write content to temp files
+  local f = io.open(tmp_original, 'w')
+  if f then
+    f:write(original_content)
+    f:close()
+  end
+  
+  f = io.open(tmp_pr, 'w')
+  if f then
+    f:write(pr_content)
+    f:close()
+  end
+  
+  -- Get filename for display
+  local filename = file.path:match("([^/]+)$") or file.path
+  local extension = filename:match("%.([^%.]+)$") or ""
+  
+  -- Create the diff view
+  -- First, load the original file in the current window
+  vim.cmd('edit ' .. tmp_original)
+  local original_buf = vim.api.nvim_get_current_buf()
+  
+  -- Set buffer name and options for original
+  vim.api.nvim_buf_set_name(original_buf, '[EZPR] ' .. filename .. ' (original)')
+  if extension ~= "" then
+    vim.api.nvim_buf_set_option(original_buf, 'filetype', extension)
+  end
+  vim.api.nvim_buf_set_option(original_buf, 'modifiable', false)
+  
+  -- Create vertical split and load PR version
+  vim.cmd('vertical diffsplit ' .. tmp_pr)
+  local pr_buf = vim.api.nvim_get_current_buf()
+  
+  -- Set buffer name and options for PR version
+  vim.api.nvim_buf_set_name(pr_buf, '[EZPR] ' .. filename .. ' (PR)')
+  if extension ~= "" then
+    vim.api.nvim_buf_set_option(pr_buf, 'filetype', extension)
+  end
+  vim.api.nvim_buf_set_option(pr_buf, 'modifiable', false)
+  
+  -- Update state to track both buffers
+  M.state.main_buf = pr_buf  -- Keep PR buffer as the primary one for discussions
+  M.state.original_buf = original_buf
+  M.state.pr_buf = pr_buf
+  
+  -- Store temp files for cleanup
+  M.state.temp_files = {tmp_original, tmp_pr}
+  
+  -- Clean up temp files when buffers are closed
+  vim.api.nvim_create_autocmd('BufUnload', {
+    pattern = {tmp_original, tmp_pr},
+    callback = function()
+      if M.state.temp_files then
+        for _, tmp_file in ipairs(M.state.temp_files) do
+          os.remove(tmp_file)
+        end
+        M.state.temp_files = nil
+      end
+    end,
+    once = true
+  })
+  
+  vim.notify("Loaded side-by-side diff: " .. filename, vim.log.levels.INFO)
+end
+
 
 -- Load discussions for a specific file
 function M.load_file_discussions_for_file(file)
