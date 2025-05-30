@@ -472,15 +472,26 @@ function M.load_file_discussions_for_file(file)
       -- Get the actual discussion status
       local status = "active"  -- default
       if discussion.status then
-        status = discussion.status
+        local status_str = discussion.status:lower()
+        if status_str == "fixed" then
+          status = "resolved"
+        elseif status_str == "wontfix" then
+          status = "won't fix"
+        elseif status_str == "bydesign" then
+          status = "closed"
+        else
+          status = discussion.status
+        end
       elseif discussion.context and discussion.context.status then
-        -- Map Azure DevOps status codes to text
+        -- Map Azure DevOps status codes to simplified statuses
         local status_map = {
-          [1] = "active",
-          [2] = "pending",
-          [3] = "won't fix",
-          [4] = "resolved",
-          [5] = "closed"
+          [0] = "active",      -- Unknown -> Active
+          [1] = "active",      -- Active
+          [2] = "resolved",    -- Fixed -> Resolved
+          [3] = "won't fix",   -- WontFix -> Won't fix
+          [4] = "closed",      -- Closed
+          [5] = "closed",      -- ByDesign -> Closed
+          [6] = "pending"      -- Pending
         }
         status = status_map[discussion.context.status] or "active"
       end
@@ -847,15 +858,26 @@ function M.add_discussion_indicators(discussions)
           -- Get the actual status for this discussion (same logic as elsewhere)
           local disc_status = "active"  -- default
           if discussion.status then
-            disc_status = discussion.status
+            local status_str = discussion.status:lower()
+            if status_str == "fixed" then
+              disc_status = "resolved"
+            elseif status_str == "wontfix" then
+              disc_status = "won't fix"
+            elseif status_str == "bydesign" then
+              disc_status = "closed"
+            else
+              disc_status = discussion.status
+            end
           elseif discussion.context and discussion.context.status then
-            -- Map Azure DevOps status codes to text
+            -- Map Azure DevOps status codes to simplified statuses
             local status_map = {
-              [1] = "active",
-              [2] = "pending",
-              [3] = "won't fix",
-              [4] = "resolved",
-              [5] = "closed"
+              [0] = "active",      -- Unknown -> Active
+              [1] = "active",      -- Active
+              [2] = "resolved",    -- Fixed -> Resolved
+              [3] = "won't fix",   -- WontFix -> Won't fix
+              [4] = "closed",      -- Closed
+              [5] = "closed",      -- ByDesign -> Closed
+              [6] = "pending"      -- Pending
             }
             disc_status = status_map[discussion.context.status] or "active"
           end
@@ -968,15 +990,26 @@ function M.add_discussion_indicators(discussions)
           -- Get the actual status for each discussion (same logic as discussion panel)
           local disc_status = "active"  -- default
           if discussion.status then
-            disc_status = discussion.status
+            local status_str = discussion.status:lower()
+            if status_str == "fixed" then
+              disc_status = "resolved"
+            elseif status_str == "wontfix" then
+              disc_status = "won't fix"
+            elseif status_str == "bydesign" then
+              disc_status = "closed"
+            else
+              disc_status = discussion.status
+            end
           elseif discussion.context and discussion.context.status then
-            -- Map Azure DevOps status codes to text
+            -- Map Azure DevOps status codes to simplified statuses
             local status_map = {
-              [1] = "active",
-              [2] = "pending",
-              [3] = "won't fix",
-              [4] = "resolved",
-              [5] = "closed"
+              [0] = "active",      -- Unknown -> Active
+              [1] = "active",      -- Active
+              [2] = "resolved",    -- Fixed -> Resolved
+              [3] = "won't fix",   -- WontFix -> Won't fix
+              [4] = "closed",      -- Closed
+              [5] = "closed",      -- ByDesign -> Closed
+              [6] = "pending"      -- Pending
             }
             disc_status = status_map[discussion.context.status] or "active"
           end
@@ -1190,7 +1223,48 @@ function M.show_single_discussion_popup(discussion, line_number)
   local content = {}
   
   table.insert(content, string.format("=== Line %d Discussion ===", line_number))
-  table.insert(content, "Press 'q' to close this window")
+  table.insert(content, "")
+  
+  -- Get current status
+  local current_status = "active"  -- default
+  if discussion.status then
+    current_status = discussion.status
+  elseif discussion.context and discussion.context.status then
+    local status_map = {
+      [0] = "active",      -- Unknown -> Active
+      [1] = "active",      -- Active
+      [2] = "resolved",    -- Fixed -> Resolved
+      [3] = "won't fix",   -- WontFix -> Won't fix
+      [4] = "closed",      -- Closed
+      [5] = "closed",      -- ByDesign -> Closed
+      [6] = "pending"      -- Pending
+    }
+    current_status = status_map[discussion.context.status] or "active"
+  end
+  
+  -- Handle Azure DevOps specific status strings
+  if discussion.status then
+    local status_str = discussion.status:lower()
+    if status_str == "fixed" then
+      current_status = "resolved"
+    elseif status_str == "wontfix" then
+      current_status = "won't fix"
+    elseif status_str == "bydesign" then
+      current_status = "closed"
+    else
+      current_status = discussion.status
+    end
+  end
+  
+  if discussion.context and discussion.context.is_outdated then
+    current_status = "outdated"
+  end
+  
+  table.insert(content, string.format("Status: %s", current_status))
+  table.insert(content, "")
+  table.insert(content, "Change Status:")
+  table.insert(content, "  [Ctrl+1] Active    [Ctrl+2] Pending    [Ctrl+3] Resolved")
+  table.insert(content, "  [Ctrl+4] Won't Fix  [Ctrl+5] Closed")
   table.insert(content, "")
   
   -- Show discussion context if available
@@ -1265,6 +1339,62 @@ function M.show_single_discussion_popup(discussion, line_number)
     target_line = math.max(target_line, 1)
     
     vim.api.nvim_win_set_cursor(winnr, {target_line, 0})
+  end
+  
+  -- Add keybindings to close the floating window
+  local function close_float()
+    if vim.api.nvim_win_is_valid(winnr) then
+      vim.api.nvim_win_close(winnr, true)
+    end
+  end
+
+  -- Function to change discussion status
+  local function change_status(new_status)
+    local ado_backend = require("plugins.ezpr.ezpr_be_ado")
+    local thread_id = discussion.id
+    local pr_id = M.state.pr_data and M.state.pr_data.pullRequestId
+    
+    if not thread_id or not pr_id then
+      vim.notify("Missing thread ID or PR ID", vim.log.levels.ERROR)
+      return
+    end
+    
+    vim.notify("Updating discussion status to " .. new_status .. "...", vim.log.levels.INFO)
+    
+    local result = ado_backend.update_discussion_status(pr_id, thread_id, new_status)
+    if result.success then
+      vim.notify("Status updated successfully!", vim.log.levels.INFO)
+      close_float()
+      -- Refresh discussions to show updated status
+      if M.state.current_file then
+        M.load_file_discussions_for_file(M.state.current_file)
+      end
+    else
+      vim.notify("Failed to update status: " .. (result.error or "Unknown error"), vim.log.levels.ERROR)
+    end
+  end
+
+  -- Add keybindings for status changes and closing
+  vim.keymap.set('n', 'q', close_float, { buffer = popup_bufnr, desc = 'Close discussion' })
+  vim.keymap.set('n', '<C-1>', function() change_status("active") end, { buffer = popup_bufnr, desc = 'Set Active' })
+  vim.keymap.set('n', '<C-2>', function() change_status("pending") end, { buffer = popup_bufnr, desc = 'Set Pending' })
+  vim.keymap.set('n', '<C-3>', function() change_status("resolved") end, { buffer = popup_bufnr, desc = 'Set Resolved' })
+  vim.keymap.set('n', '<C-4>', function() change_status("won't fix") end, { buffer = popup_bufnr, desc = 'Set Won\'t Fix' })
+  vim.keymap.set('n', '<C-5>', function() change_status("closed") end, { buffer = popup_bufnr, desc = 'Set Closed' })
+
+  -- Add highlights to the popup
+  for i, line in ipairs(content) do
+    if line:match("^=== .* ===$") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Title', i-1, 0, -1)
+    elseif line:match("^@") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'EzprDiscussionAuthor', i-1, 0, -1)
+    elseif line:match("^Posted on") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Comment', i-1, 0, -1)
+    elseif line:match("^Status:") or line:match("^Change Status:") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'EzprDiscussionIndicator', i-1, 0, -1)
+    elseif line:match("^  %[%d%]") then
+      vim.api.nvim_buf_add_highlight(popup_bufnr, 0, 'Number', i-1, 0, -1)
+    end
   end
 end
 

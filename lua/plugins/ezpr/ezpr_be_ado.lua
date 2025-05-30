@@ -1088,4 +1088,67 @@ function M.reply_to_discussion(pr_id, thread_id, reply_content)
   }
 end
 
+-- Update discussion thread status
+function M.update_discussion_status(pr_id, thread_id, new_status)
+  -- Ensure we're authenticated
+  if not auth_state.authenticated then
+    local success, err = M.authenticate()
+    if not success then
+      return { success = false, error = err }
+    end
+  end
+
+  local token, err = get_azure_token()
+  if not token then
+    return { success = false, error = 'Failed to get Azure token: ' .. (err or 'unknown error') }
+  end
+
+  -- Map status names to Azure DevOps status codes
+  local status_codes = {
+    active = 1,
+    resolved = 2,  -- Maps to "Fixed" in Azure DevOps
+    ["won't fix"] = 3,  -- Maps to "WontFix" in Azure DevOps
+    closed = 4,  -- Maps to "Closed" in Azure DevOps
+    pending = 6   -- Maps to "Pending" in Azure DevOps
+  }
+  
+  local status_code = status_codes[new_status:lower()]
+  if not status_code then
+    return { success = false, error = 'Invalid status: ' .. new_status }
+  end
+
+  local url = string.format(
+    'https://dev.azure.com/%s/%s/_apis/git/repositories/%s/pullRequests/%s/threads/%s?api-version=7.0',
+    auth_state.organization, auth_state.project, auth_state.repo, pr_id, thread_id
+  )
+
+  local data = {
+    status = status_code
+  }
+
+  local cmd = string.format(
+    'curl -s -X PATCH "%s" ' ..
+    '-H "Authorization: Bearer %s" ' ..
+    '-H "Content-Type: application/json" ' ..
+    '-d \'%s\'',
+    url, token, vim.fn.json_encode(data)
+  )
+
+  local result, cmd_err = execute_command(cmd)
+  if cmd_err then
+    return { success = false, error = 'Failed to execute update command: ' .. cmd_err }
+  end
+
+  local success, response = pcall(vim.fn.json_decode, result)
+  if not success then
+    return { success = false, error = 'Failed to parse response: ' .. tostring(response) }
+  end
+
+  if response.errorCode then
+    return { success = false, error = response.message or 'Unknown API error' }
+  end
+
+  return { success = true, thread = response }
+end
+
 return M
