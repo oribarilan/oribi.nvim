@@ -579,4 +579,197 @@ function M.fetch_file_discussions(pr_id, file_path, line_number)
   }
 end
 
+-- Fetch all files changed in a pull request
+function M.fetch_pr_files(pr_id)
+  -- Ensure we're authenticated
+  if not is_auth_valid() then
+    local auth_result = M.auth()
+    if not auth_result.success then
+      return {
+        success = false,
+        error = 'Authentication failed: ' .. (auth_result.error or 'unknown error'),
+      }
+    end
+  end
+
+  local token, err = ensure_token()
+  if err then
+    return {
+      success = false,
+      error = 'Failed to get Azure token: ' .. err,
+    }
+  end
+
+  local organization, project, repo = auth_state.organization, auth_state.project, auth_state.repo
+  
+  -- API endpoint for getting PR files/iterations
+  local api_url = string.format(
+    'https://dev.azure.com/%s/%s/_apis/git/repositories/%s/pullRequests/%s/iterations?api-version=7.0',
+    organization, project, repo, pr_id
+  )
+
+  local curl_cmd = string.format(
+    "curl -s -H 'Authorization: Bearer %s' -H 'Content-Type: application/json' '%s'",
+    token, api_url
+  )
+
+  local result, curl_err = execute_command(curl_cmd)
+  if curl_err then
+    return {
+      success = false,
+      error = 'Failed to fetch PR iterations: ' .. curl_err,
+    }
+  end
+
+  local success, iterations_data = pcall(vim.json.decode, result)
+  if not success then
+    return {
+      success = false,
+      error = 'Failed to parse iterations response: ' .. (iterations_data or 'unknown'),
+    }
+  end
+
+  if not iterations_data.value or #iterations_data.value == 0 then
+    return {
+      success = true,
+      files = {},
+    }
+  end
+
+  -- Get the latest iteration
+  local latest_iteration = iterations_data.value[#iterations_data.value]
+  local iteration_id = latest_iteration.id
+
+  -- Get files for this iteration
+  local files_url = string.format(
+    'https://dev.azure.com/%s/%s/_apis/git/repositories/%s/pullRequests/%s/iterations/%s/changes?api-version=7.0',
+    organization, project, repo, pr_id, iteration_id
+  )
+
+  local files_cmd = string.format(
+    "curl -s -H 'Authorization: Bearer %s' -H 'Content-Type: application/json' '%s'",
+    token, files_url
+  )
+
+  local files_result, files_err = execute_command(files_cmd)
+  if files_err then
+    return {
+      success = false,
+      error = 'Failed to fetch PR files: ' .. files_err,
+    }
+  end
+
+  local files_success, files_data = pcall(vim.json.decode, files_result)
+  if not files_success then
+    return {
+      success = false,
+      error = 'Failed to parse files response: ' .. (files_data or 'unknown'),
+    }
+  end
+
+  local pr_files = {}
+  if files_data.changeEntries then
+    for _, change in ipairs(files_data.changeEntries) do
+      if change.item and change.item.path then
+        local file_info = {
+          path = change.item.path,
+          changeType = change.changeType or "unknown",
+          isFolder = change.item.isFolder or false,
+        }
+        
+        -- Only include files, not folders
+        if not file_info.isFolder then
+          table.insert(pr_files, file_info)
+        end
+      end
+    end
+  end
+
+  return {
+    success = true,
+    files = pr_files,
+    pr_id = pr_id,
+    iteration_id = iteration_id,
+  }
+end
+
+-- Fetch content of a specific file in a PR
+function M.fetch_pr_file_content(pr_id, file_path)
+  -- Ensure we're authenticated
+  if not is_auth_valid() then
+    local auth_result = M.auth()
+    if not auth_result.success then
+      return {
+        success = false,
+        error = 'Authentication failed: ' .. (auth_result.error or 'unknown error'),
+      }
+    end
+  end
+
+  local token, err = ensure_token()
+  if err then
+    return {
+      success = false,
+      error = 'Failed to get Azure token: ' .. err,
+    }
+  end
+
+  local organization, project, repo = auth_state.organization, auth_state.project, auth_state.repo
+  
+  -- Get PR details to find source branch
+  local pr_url = string.format(
+    'https://dev.azure.com/%s/%s/_apis/git/repositories/%s/pullRequests/%s?api-version=7.0',
+    organization, project, repo, pr_id
+  )
+
+  local pr_cmd = string.format(
+    "curl -s -H 'Authorization: Bearer %s' -H 'Content-Type: application/json' '%s'",
+    token, pr_url
+  )
+
+  local pr_result, pr_err = execute_command(pr_cmd)
+  if pr_err then
+    return {
+      success = false,
+      error = 'Failed to fetch PR details: ' .. pr_err,
+    }
+  end
+
+  local pr_success, pr_data = pcall(vim.json.decode, pr_result)
+  if not pr_success or not pr_data.sourceRefName then
+    return {
+      success = false,
+      error = 'Failed to get PR source branch',
+    }
+  end
+
+  local source_ref = pr_data.sourceRefName:gsub('^refs/heads/', '')
+  
+  -- Get file content from source branch
+  local file_url = string.format(
+    'https://dev.azure.com/%s/%s/_apis/git/repositories/%s/items?path=%s&version=%s&api-version=7.0',
+    organization, project, repo, file_path, source_ref
+  )
+
+  local file_cmd = string.format(
+    "curl -s -H 'Authorization: Bearer %s' '%s'",
+    token, file_url
+  )
+
+  local file_result, file_err = execute_command(file_cmd)
+  if file_err then
+    return {
+      success = false,
+      error = 'Failed to fetch file content: ' .. file_err,
+    }
+  end
+
+  return {
+    success = true,
+    content = file_result,
+    file_path = file_path,
+    branch = source_ref,
+  }
+end
+
 return M

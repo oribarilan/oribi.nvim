@@ -152,18 +152,147 @@ end
 
 -- Select a file from the files panel
 function M.select_file()
-  local line = vim.api.nvim_win_get_cursor(M.state.files_win)[1]
-  -- For now, just show placeholder content
-  -- This will be enhanced to load actual file content and discussions
-  M.load_file_content("Selected file at line " .. line)
-  M.load_file_discussions("File " .. line .. " discussions")
+  if not M.state.files_data or #M.state.files_data == 0 then
+    vim.notify("No files available", vim.log.levels.WARN)
+    return
+  end
+  
+  local cursor_line = vim.api.nvim_win_get_cursor(M.state.files_win)[1]
+  local file_index = cursor_line
+  
+  if file_index < 1 or file_index > #M.state.files_data then
+    vim.notify("Invalid file selection", vim.log.levels.WARN)
+    return
+  end
+  
+  local selected_file = M.state.files_data[file_index]
+  M.state.current_file = selected_file
+  
+  -- Load file content
+  M.load_selected_file_content(selected_file)
+  
+  -- Load discussions for this file
+  M.load_file_discussions_for_file(selected_file)
+end
+
+-- Load content for the selected file
+function M.load_selected_file_content(file)
+  if not M.state.pr_data then
+    vim.notify("No PR data available", vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Get the ADO backend
+  local ado_backend = require("plugins.ezpr.ezpr_be_ado")
+  
+  -- Fetch file content
+  local response = ado_backend.fetch_pr_file_content(M.state.pr_data.pullRequestId, file.path)
+  
+  if not response.success then
+    vim.notify("Failed to fetch file content: " .. (response.error or "Unknown error"), vim.log.levels.ERROR)
+    return
+  end
+  
+  -- Load content into main buffer
+  local content = response.content or ""
+  local lines = vim.split(content, '\n')
+  
+  if M.state.main_buf and vim.api.nvim_buf_is_valid(M.state.main_buf) then
+    vim.api.nvim_buf_set_option(M.state.main_buf, 'modifiable', true)
+    vim.api.nvim_buf_set_lines(M.state.main_buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(M.state.main_buf, 'modifiable', false)
+    
+    -- Set buffer name to reflect the file
+    local filename = file.path:match("([^/]+)$") or file.path
+    vim.api.nvim_buf_set_name(M.state.main_buf, '[EZPR] ' .. filename)
+    
+    -- Try to set filetype based on extension
+    local extension = filename:match("%.([^%.]+)$")
+    if extension then
+      vim.api.nvim_buf_set_option(M.state.main_buf, 'filetype', extension)
+    end
+    
+    vim.notify("Loaded: " .. filename, vim.log.levels.INFO)
+  end
+end
+
+-- Load discussions for a specific file
+function M.load_file_discussions_for_file(file)
+  if not M.state.pr_data then
+    return
+  end
+  
+  -- Get the ADO backend
+  local ado_backend = require("plugins.ezpr.ezpr_be_ado")
+  
+  -- Fetch discussions for this file
+  local response = ado_backend.fetch_file_discussions(M.state.pr_data.pullRequestId, file.path)
+  
+  if not response.success then
+    vim.notify("Failed to fetch discussions: " .. (response.error or "Unknown error"), vim.log.levels.WARN)
+    return
+  end
+  
+  local discussions = response.discussions or {}
+  M.state.discussions_data = discussions
+  
+  -- Format discussions for display
+  local discussion_lines = {}
+  
+  if #discussions == 0 then
+    table.insert(discussion_lines, "No discussions for this file")
+  else
+    for i, discussion in ipairs(discussions) do
+      local line_info = "?"
+      if discussion.threadContext and discussion.threadContext.rightFileStart then
+        line_info = "Line " .. discussion.threadContext.rightFileStart.line
+      end
+      
+      local comment_count = discussion.comments and #discussion.comments or 0
+      local author = "Unknown"
+      if discussion.comments and #discussion.comments > 0 and discussion.comments[1].author then
+        author = discussion.comments[1].author.displayName or "Unknown"
+      end
+      
+      local line = string.format("%d. %s - %d comment%s by %s",
+        i, line_info, comment_count, comment_count == 1 and "" or "s", author)
+      table.insert(discussion_lines, line)
+    end
+  end
+  
+  -- Update the discussions buffer
+  if M.state.discussions_buf and vim.api.nvim_buf_is_valid(M.state.discussions_buf) then
+    vim.api.nvim_buf_set_option(M.state.discussions_buf, 'modifiable', true)
+    vim.api.nvim_buf_set_lines(M.state.discussions_buf, 0, -1, false, discussion_lines)
+    vim.api.nvim_buf_set_option(M.state.discussions_buf, 'modifiable', false)
+  end
 end
 
 -- Select a discussion from the discussions panel
 function M.select_discussion()
-  local line = vim.api.nvim_win_get_cursor(M.state.discussions_win)[1]
-  -- This will be enhanced to jump to the relevant line in the main window
-  M.jump_to_line_in_main(line)
+  if not M.state.discussions_data or #M.state.discussions_data == 0 then
+    vim.notify("No discussions available", vim.log.levels.WARN)
+    return
+  end
+  
+  local cursor_line = vim.api.nvim_win_get_cursor(M.state.discussions_win)[1]
+  local discussion_index = cursor_line
+  
+  if discussion_index < 1 or discussion_index > #M.state.discussions_data then
+    vim.notify("Invalid discussion selection", vim.log.levels.WARN)
+    return
+  end
+  
+  local selected_discussion = M.state.discussions_data[discussion_index]
+  
+  -- Jump to the line in the main window if we have line context
+  if selected_discussion.threadContext and selected_discussion.threadContext.rightFileStart then
+    local line_num = selected_discussion.threadContext.rightFileStart.line
+    M.jump_to_line_in_main(line_num)
+    vim.notify("Jumped to line " .. line_num, vim.log.levels.INFO)
+  else
+    vim.notify("No line information for this discussion", vim.log.levels.WARN)
+  end
 end
 
 -- Helper function to format author name
@@ -256,15 +385,62 @@ function M.load_pr_data(pr)
     return
   end
   
-  -- This will be enhanced to load actual PR data
-  -- For now, just update the state
+  -- Update the state
   M.state.pr_data = pr
   
-  -- TODO: Load actual files and discussions from the PR
-  -- M.state.files_data = get_pr_files(pr)
-  -- M.state.discussions_data = get_pr_discussions(pr)
+  -- Load actual files from the PR
+  M.load_pr_files(pr)
   
   vim.notify("PR loaded: " .. pr.title, vim.log.levels.INFO)
+end
+
+-- Load files for the current PR into the files panel
+function M.load_pr_files(pr)
+  if not M.state.files_buf or not vim.api.nvim_buf_is_valid(M.state.files_buf) then
+    return
+  end
+  
+  -- Get the ADO backend
+  local ado_backend = require("plugins.ezpr.ezpr_be_ado")
+  
+  -- Fetch files for this PR
+  local response = ado_backend.fetch_pr_files(pr.pullRequestId)
+  
+  if not response.success then
+    vim.notify("Failed to fetch PR files: " .. (response.error or "Unknown error"), vim.log.levels.ERROR)
+    return
+  end
+  
+  local files = response.files or {}
+  M.state.files_data = files
+  
+  -- Format files for display
+  local file_lines = {}
+  
+  if #files == 0 then
+    table.insert(file_lines, "No files found in this PR")
+  else
+    for i, file in ipairs(files) do
+      local change_icon = "?"
+      if file.changeType == "add" then
+        change_icon = "+"
+      elseif file.changeType == "edit" then
+        change_icon = "~"
+      elseif file.changeType == "delete" then
+        change_icon = "-"
+      end
+      
+      -- Get filename from path
+      local filename = file.path:match("([^/]+)$") or file.path
+      local line = string.format("%d. [%s] %s", i, change_icon, filename)
+      table.insert(file_lines, line)
+    end
+  end
+  
+  -- Update the files buffer
+  vim.api.nvim_buf_set_option(M.state.files_buf, 'modifiable', true)
+  vim.api.nvim_buf_set_lines(M.state.files_buf, 0, -1, false, file_lines)
+  vim.api.nvim_buf_set_option(M.state.files_buf, 'modifiable', false)
 end
 
 -- Load file content into main panel
