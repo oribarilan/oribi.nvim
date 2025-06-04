@@ -5,7 +5,11 @@ return {
   opts = {
     provider = 'copilot',
     copilot = {
-      model = 'claude-sonnet-4',
+      model = 'claude-3.5-sonnet',
+    },
+    behaviour = {
+      auto_suggestions = false,
+      auto_apply_diff_after_generation = false,
     },
   },
   build = 'make',
