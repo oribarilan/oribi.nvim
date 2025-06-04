@@ -8,6 +8,7 @@ return {
       model = 'claude-3.5-sonnet',
     },
     behaviour = {
+      -- let copilot.nvim handle auto-suggestions
       auto_suggestions = false,
       auto_apply_diff_after_generation = false,
     },
