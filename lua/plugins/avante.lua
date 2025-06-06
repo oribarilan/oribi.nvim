@@ -5,7 +5,7 @@ return {
   opts = {
     provider = 'copilot',
     copilot = {
-      model = 'claude-3.5-sonnet',
+      model = 'claude-sonnet-4',
     },
     behaviour = {
       -- let copilot.nvim handle auto-suggestions
