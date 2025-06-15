@@ -13,9 +13,12 @@ return {
         hl.LineNr = { fg = subtle_color }
         hl.LineNrAbove = { fg = subtle_color }
         hl.LineNrBelow = { fg = subtle_color }
+
+        -- Make Visual mode stand out more
+        hl.Visual = { bg = '#445b9b' } -- You can tweak this hex color
       end,
       styles = {
-        comments = { italic = false },
+        comments = { italic = true },
       },
     }
 
