@@ -1,30 +1,32 @@
--- Minimal .env loader
+-- Currently disabled due to the use of direnv in zsh
 --
--- This script loads environment variables from a .env file into the Neovim environment, when opening Python files.
-local function load_env_file(path)
-  local file = io.open(path or '.env', 'r')
-  if not file then
-    return
-  end
-
-  local count = 0
-  for line in file:lines() do
-    local key, value = line:match '^%s*([%w_]+)%s*=%s*[\'"]?([^\'"]+)[\'"]?'
-    if key and value then
-      vim.fn.setenv(key, value)
-      count = count + 1
-    end
-  end
-
-  file:close()
-
-  vim.notify('.env loaded with ' .. count .. ' variables', vim.log.levels.INFO)
-end
-
--- Autoload .env on opening Python files
-vim.api.nvim_create_autocmd('FileType', {
-  pattern = 'python',
-  callback = function()
-    load_env_file()
-  end,
-})
+-- -- Minimal .env loader
+-- --
+-- -- This script loads environment variables from a .env file into the Neovim environment, when opening Python files.
+-- local function load_env_file(path)
+--   local file = io.open(path or '.env', 'r')
+--   if not file then
+--     return
+--   end
+--
+--   local count = 0
+--   for line in file:lines() do
+--     local key, value = line:match '^%s*([%w_]+)%s*=%s*[\'"]?([^\'"]+)[\'"]?'
+--     if key and value then
+--       vim.fn.setenv(key, value)
+--       count = count + 1
+--     end
+--   end
+--
+--   file:close()
+--
+--   vim.notify('.env loaded with ' .. count .. ' variables', vim.log.levels.INFO)
+-- end
+--
+-- -- Autoload .env on opening Python files
+-- vim.api.nvim_create_autocmd('FileType', {
+--   pattern = 'python',
+--   callback = function()
+--     load_env_file()
+--   end,
+-- })

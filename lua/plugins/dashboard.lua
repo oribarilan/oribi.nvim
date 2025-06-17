@@ -47,7 +47,7 @@ return {
           {
             icon = ' ',
             icon_hl = '@variable',
-            desc = 'Config',
+            desc = 'Nvim config',
             group = 'Label',
             action = function()
               vim.cmd 'cd ~/.config/nvim' -- change global cwd
@@ -60,8 +60,16 @@ return {
             icon_hl = '@variable',
             desc = 'zshrc',
             group = 'Label',
-            action = 'edit ~/.zshrc',
+            action = 'edit ~/.config/zsh/',
             key = 'z',
+          },
+          {
+            icon = '󱀺 ',
+            icon_hl = '@variable',
+            desc = 'dotfiles',
+            group = 'Label',
+            action = 'edit ~/.config/dotfiles/',
+            key = 'd',
           },
           {
             icon = ' ',

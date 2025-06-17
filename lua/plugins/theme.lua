@@ -18,7 +18,7 @@ return {
         hl.Visual = { bg = '#445b9b' } -- You can tweak this hex color
       end,
       styles = {
-        comments = { italic = true },
+        comments = { italic = false }, -- copilot ghost text will use italic, to diffrentiate it from comments
       },
     }
 
