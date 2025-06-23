@@ -74,6 +74,12 @@ return {
         -- 'enter' for enter to accept
         -- 'none' for no mappings
         --
+        -- navigation
+        ['<C-j>'] = { 'select_next', 'fallback' }, -- or <C-n> as the default
+        ['<C-k>'] = { 'select_prev', 'fallback' }, -- or <C-p> as the default
+        -- <C-y> to accept the completion
+        -- <C-space> to open the menu
+        --
         -- For an understanding of why the 'default' preset is recommended,
         -- you will need to read `:help ins-completion`
         --

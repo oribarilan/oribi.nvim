@@ -2,7 +2,11 @@ return {
   'echasnovski/mini.files',
   version = '*', -- latest stable
   config = function()
-    require('mini.files').setup {}
+    require('mini.files').setup {
+      options = {
+        use_as_default_explorer = false,
+      },
+    }
 
     -- Optional: Key mappings to open mini.files
     vim.keymap.set('n', '<leader>E', function()
