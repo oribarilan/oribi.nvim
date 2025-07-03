@@ -11,58 +11,60 @@ function M.setup(dap)
   dap.configurations.cs = {
     {
       type = "coreclr",
-      name = "launch - netcoredbg (auto build)",
+      name = "launch - auto build & run",
       request = "launch",
-      preLaunchTask = function()
-        -- Build the project first
-        vim.fn.system('dotnet build --configuration Debug')
-      end,
       program = function()
-        local cwd = vim.fn.getcwd()
-        local project_name = vim.fn.fnamemodify(cwd, ':t')
+        local current_file = vim.fn.expand('%:p')
+        local current_dir = vim.fn.fnamemodify(current_file, ':p:h')
         
-        -- Try to find the built executable automatically
-        local possible_paths = {
-          cwd .. '/bin/Debug/net8.0/' .. project_name .. '.dll',
-          cwd .. '/bin/Debug/net6.0/' .. project_name .. '.dll',
-          cwd .. '/bin/Debug/net5.0/' .. project_name .. '.dll',
+        -- Find the directory containing .csproj or .sln
+        local project_dir = current_dir
+        while project_dir ~= '/' do
+          if vim.fn.glob(project_dir .. '/*.csproj') ~= '' or vim.fn.glob(project_dir .. '/*.sln') ~= '' then
+            break
+          end
+          project_dir = vim.fn.fnamemodify(project_dir, ':h')
+        end
+        
+        if project_dir == '/' then
+          vim.notify('No .csproj or .sln file found in parent directories', vim.log.levels.ERROR)
+          return nil
+        end
+        
+        local project_name = vim.fn.fnamemodify(project_dir, ':t')
+        
+        -- Build the project first
+        local build_cmd = 'cd "' .. project_dir .. '" && dotnet build --configuration Debug'
+        vim.notify('Building: ' .. build_cmd, vim.log.levels.INFO)
+        local build_result = vim.fn.system(build_cmd)
+        
+        if vim.v.shell_error ~= 0 then
+          vim.notify('Build failed:\n' .. build_result, vim.log.levels.ERROR)
+          return nil
+        end
+        
+        -- Find any DLL in the bin/Debug directories
+        local search_dirs = {
+          project_dir .. '/bin/Debug/net8.0/',
+          project_dir .. '/bin/Debug/net6.0/',
+          project_dir .. '/bin/Debug/net5.0/',
         }
         
-        for _, path in ipairs(possible_paths) do
-          if vim.fn.filereadable(path) == 1 then
-            return path
+        for _, search_dir in ipairs(search_dirs) do
+          if vim.fn.isdirectory(search_dir) == 1 then
+            local dll_files = vim.fn.glob(search_dir .. '*.dll', false, true)
+            for _, dll_path in ipairs(dll_files) do
+              -- Skip ref assemblies and other non-executable DLLs
+              if not string.match(dll_path, '/ref/') and not string.match(dll_path, '/refint/') then
+                return dll_path
+              end
+            end
           end
         end
         
-        -- Use Telescope to pick DLL file
-        return coroutine.create(function(dap_run_co)
-          require('telescope.builtin').find_files({
-            prompt_title = 'Select DLL to debug',
-            cwd = cwd .. '/bin',
-            find_command = { 'find', '.', '-name', '*.dll', '-type', 'f' },
-            previewer = false,  -- Disable preview for DLL selection
-            layout_config = {
-              height = 0.4,  -- Smaller height since no preview
-              width = 0.6,
-            },
-            attach_mappings = function(prompt_bufnr, map)
-              local actions = require('telescope.actions')
-              local action_state = require('telescope.actions.state')
-              
-              actions.select_default:replace(function()
-                local selection = action_state.get_selected_entry()
-                actions.close(prompt_bufnr)
-                if selection then
-                  coroutine.resume(dap_run_co, cwd .. '/bin/' .. selection.value)
-                else
-                  coroutine.resume(dap_run_co, nil)
-                end
-              end)
-              
-              return true
-            end,
-          })
-        end)
+        -- If auto-detection fails, show error and fallback
+        vim.notify('Could not auto-detect DLL. Build may have failed.', vim.log.levels.WARN)
+        return nil
       end,
       cwd = vim.fn.getcwd(),
       stopAtEntry = false,
