@@ -36,8 +36,6 @@ namespace TestCSharp
             person.Greet();
 
             Console.WriteLine("\n=== Test Complete ===");
-            Console.WriteLine("Press any key to exit...");
-            Console.ReadKey();
         }
 
         // Test method definition and IntelliSense
