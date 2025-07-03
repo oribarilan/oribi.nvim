@@ -29,6 +29,7 @@ return {
         interrupt = '<leader>ii',
         exit = '<leader>isq',
         clear = '<leader>icl',
+        send_code_block = '<space>isb',
       },
       highlight = {
         italic = true,
