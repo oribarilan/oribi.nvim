@@ -62,7 +62,6 @@ return {
             'quiet'
           },
           stdin = false,
-          cwd = require('conform.util').root_file({ '*.csproj', '*.sln' }),
         },
       },
     },

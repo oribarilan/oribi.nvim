@@ -28,6 +28,12 @@ return {
 
     -- Add your own debuggers here
     'mfussenegger/nvim-dap-python',
+    
+    -- .NET Core debugger for macOS ARM64
+    {
+      "Cliffback/netcoredbg-macOS-arm64.nvim",
+      dependencies = { "mfussenegger/nvim-dap" }
+    },
   },
   keys = {
     -- Basic debugging keymaps, feel free to change to your liking!
@@ -135,5 +141,8 @@ return {
     dap.listeners.before.event_exited['dapui_config'] = dapui.close
 
     require('dap-python').setup()
+    
+    -- Setup .NET Core debugger for macOS ARM64
+    require('netcoredbg-macOS-arm64').setup(require('dap'))
   end,
 }
