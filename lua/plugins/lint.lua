@@ -53,8 +53,16 @@ return {
         },
         dotnet_format = {
           command = 'dotnet',
-          args = { 'format', '--include', '$FILENAME' },
+          args = {
+            'format',
+            '--include',
+            '$FILENAME',
+            '--no-restore',
+            '--verbosity',
+            'quiet'
+          },
           stdin = false,
+          cwd = require('conform.util').root_file({ '*.csproj', '*.sln' }),
         },
       },
     },
