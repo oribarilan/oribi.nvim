@@ -1,35 +1,26 @@
 -- debug.lua
---
--- Shows how to use the DAP plugin to debug your code.
---
--- Primarily focused on configuring the debugger for Go, but can
--- be extended to other languages as well. That's why it's called
--- kickstart.nvim and not kitchen-sink.nvim ;)
+-- Language-agnostic DAP configuration that loads language-specific setups
 
 return {
   'mfussenegger/nvim-dap',
   dependencies = {
     -- Creates a beautiful debugger UI
     'rcarriga/nvim-dap-ui',
-
     -- Required dependency for nvim-dap-ui
     'nvim-neotest/nvim-nio',
-
     -- Installs the debug adapters for you
     'williamboman/mason.nvim',
     'jay-babu/mason-nvim-dap.nvim',
-
-    -- Add your own debuggers here
+    -- Language-specific dependencies (static list)
     'mfussenegger/nvim-dap-python',
-    
-    -- .NET Core debugger for macOS ARM64
     {
       "Cliffback/netcoredbg-macOS-arm64.nvim",
       dependencies = { "mfussenegger/nvim-dap" }
     },
   },
+  
   keys = {
-    -- Basic debugging keymaps, feel free to change to your liking!
+    -- Core debugging keymaps
     {
       '<M-d>',
       function()
@@ -72,7 +63,6 @@ return {
       end,
       desc = 'Debug: Set Conditional Breakpoint',
     },
-    -- Toggle to see last session result. Without this, you can't see session output in case of unhandled exception.
     {
       '<M-o>',
       function()
@@ -108,26 +98,36 @@ return {
       desc = 'Debug: Build .NET project',
     },
   },
+  
   config = function()
     local dap = require 'dap'
     local dapui = require 'dapui'
+
+    -- Collect Mason ensure_installed from all language modules
+    local ensure_installed = { 'python', 'netcoredbg' }
+    local debug_modules = {}
+    local debug_path = vim.fn.stdpath('config') .. '/lua/plugins/debug'
+    
+    if vim.fn.isdirectory(debug_path) == 1 then
+      local files = vim.fn.glob(debug_path .. '/debug_*.lua', false, true)
+      for _, file in ipairs(files) do
+        local module_name = vim.fn.fnamemodify(file, ':t:r')
+        local ok, module = pcall(require, 'plugins.debug.' .. module_name)
+        if ok then
+          debug_modules[module_name] = module
+        end
+      end
+    end
 
     require('mason-nvim-dap').setup {
       -- Makes a best effort to setup the various debuggers with
       -- reasonable debug configurations
       automatic_installation = true,
-
       -- You can provide additional configuration to the handlers,
       -- see mason-nvim-dap README for more information
       handlers = {},
-
-      -- You'll need to check that you have the required things installed
-      -- online, please don't ask me how to install them :)
-      ensure_installed = {
-        -- Update this to ensure that you have the debuggers for the langs you want
-        'python',
-        'netcoredbg',
-      },
+      -- Dynamically collected from language modules
+      ensure_installed = ensure_installed,
     }
 
     -- Dap UI setup
@@ -182,115 +182,12 @@ return {
     dap.listeners.before.event_terminated['dapui_config'] = dapui.close
     dap.listeners.before.event_exited['dapui_config'] = dapui.close
 
-    require('dap-python').setup()
-    
-    -- Setup .NET Core debugger for macOS ARM64
-    require('netcoredbg-macOS-arm64').setup(require('dap'))
-    
-    dap.configurations.cs = {
-      {
-        type = "coreclr",
-        name = "launch - netcoredbg (auto build)",
-        request = "launch",
-        preLaunchTask = function()
-          -- Build the project first
-          vim.fn.system('dotnet build --configuration Debug')
-        end,
-        program = function()
-          local cwd = vim.fn.getcwd()
-          local project_name = vim.fn.fnamemodify(cwd, ':t')
-          
-          -- Try to find the built executable automatically
-          local possible_paths = {
-            cwd .. '/bin/Debug/net8.0/' .. project_name .. '.dll',
-            cwd .. '/bin/Debug/net6.0/' .. project_name .. '.dll',
-            cwd .. '/bin/Debug/net5.0/' .. project_name .. '.dll',
-          }
-          
-          for _, path in ipairs(possible_paths) do
-            if vim.fn.filereadable(path) == 1 then
-              return path
-            end
-          end
-          
-          -- Use Telescope to pick DLL file
-          return coroutine.create(function(dap_run_co)
-            require('telescope.builtin').find_files({
-              prompt_title = 'Select DLL to debug',
-              cwd = cwd .. '/bin',
-              find_command = { 'find', '.', '-name', '*.dll', '-type', 'f' },
-              attach_mappings = function(prompt_bufnr, map)
-                local actions = require('telescope.actions')
-                local action_state = require('telescope.actions.state')
-                
-                actions.select_default:replace(function()
-                  local selection = action_state.get_selected_entry()
-                  actions.close(prompt_bufnr)
-                  if selection then
-                    coroutine.resume(dap_run_co, cwd .. '/bin/' .. selection.value)
-                  else
-                    coroutine.resume(dap_run_co, nil)
-                  end
-                end)
-                
-                return true
-              end,
-            })
-          end)
-        end,
-        cwd = vim.fn.getcwd(),
-        stopAtEntry = false,
-        console = 'integratedTerminal',
-        env = {},
-        args = {},
-      },
-      {
-        type = "coreclr",
-        name = "launch - netcoredbg (manual dll)",
-        request = "launch",
-        program = function()
-          local cwd = vim.fn.getcwd()
-          
-          -- Use Telescope to pick DLL file
-          return coroutine.create(function(dap_run_co)
-            require('telescope.builtin').find_files({
-              prompt_title = 'Select DLL to debug',
-              cwd = cwd,
-              find_command = { 'find', '.', '-name', '*.dll', '-type', 'f' },
-              attach_mappings = function(prompt_bufnr, map)
-                local actions = require('telescope.actions')
-                local action_state = require('telescope.actions.state')
-                
-                actions.select_default:replace(function()
-                  local selection = action_state.get_selected_entry()
-                  actions.close(prompt_bufnr)
-                  if selection then
-                    coroutine.resume(dap_run_co, cwd .. '/' .. selection.value)
-                  else
-                    coroutine.resume(dap_run_co, nil)
-                  end
-                end)
-                
-                return true
-              end,
-            })
-          end)
-        end,
-        cwd = vim.fn.getcwd(),
-        stopAtEntry = false,
-        console = 'integratedTerminal',
-        env = {},
-        args = {},
-      },
-      {
-        type = "coreclr",
-        name = "attach - netcoredbg",
-        request = "attach",
-        processId = function()
-          return require('dap.utils').pick_process()
-        end,
-        cwd = vim.fn.getcwd(),
-      }
-    }
+    -- Setup language-specific debug configurations
+    for module_name, module in pairs(debug_modules) do
+      if type(module.setup) == 'function' then
+        vim.notify('Loading debug config for: ' .. module_name, vim.log.levels.INFO)
+        module.setup(dap)
+      end
+    end
   end,
 }
