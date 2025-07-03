@@ -29,7 +29,15 @@ return {
       -- Automatically install LSPs and related tools to stdpath for Neovim
       -- Mason must be loaded before its dependents so we need to set it up here.
       -- NOTE: `opts = {}` is the same as calling `require('mason').setup({})`
-      { 'mason-org/mason.nvim', opts = {} },
+      {
+        'mason-org/mason.nvim',
+        opts = {
+          registries = {
+            "github:mason-org/mason-registry",
+            "github:Crashdummyy/mason-registry",
+          },
+        }
+      },
       'mason-org/mason-lspconfig.nvim',
       'WhoIsSethDaniel/mason-tool-installer.nvim',
 
@@ -217,16 +225,6 @@ return {
       --        For example, to see the options for `lua_ls`, you could go to: https://luals.github.io/wiki/settings/
       local util = require 'lspconfig.util'
       local servers = {
-        -- C# language server
-        omnisharp = {
-          cmd = { '~/.local/share/nvim/mason/bin/omnisharp' },
-          root_dir = util.root_pattern('*.sln', '*.csproj'),
-          enable_roslyn_analyzers = true,
-          organize_imports_on_format = true,
-          enable_import_completion = true,
-          enable_decompilation_support = true,
-          filetypes = { 'cs', 'vb', 'csproj', 'sln', 'slnx', 'props', 'csx', 'targets', 'tproj', 'slngen', 'fproj' },
-        },
         -- Pyright for type checking only
         pyright = {
           settings = {
@@ -302,6 +300,7 @@ return {
         'markdownlint', -- Markdown linter
         'yamllint', -- YAML linter
         'jsonlint', -- JSON linter
+        -- Note: roslyn is managed by roslyn.nvim plugin, not mason-lspconfig
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -319,6 +318,25 @@ return {
           end,
         },
       }
+    end,
+  },
+
+  {
+    -- Roslyn LSP for .NET
+    "seblyng/roslyn.nvim",
+    ft = "cs",
+    dependencies = {
+      "neovim/nvim-lspconfig",
+    },
+    config = function()
+      require("roslyn").setup({
+        -- Use mason installed roslyn on macOS
+        exe = {
+          "dotnet",
+          vim.fn.stdpath("data") .. "/mason/packages/roslyn/libexec/Microsoft.CodeAnalysis.LanguageServer.dll",
+        },
+        filewatching = true,
+      })
     end,
   },
 
