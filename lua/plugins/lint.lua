@@ -28,7 +28,7 @@ return {
         yaml = { 'prettier' },
         markdown = { 'prettier' },
         -- dotnet tool isntall -g dotnet-format
-        cs = { 'dotnet_format' },
+        -- cs = { 'dotnet_format' },  -- Commented out in order to use LSP formatting instead
       },
       formatters = {
         prettier = {
@@ -62,6 +62,17 @@ return {
             'quiet'
           },
           stdin = false,
+          cwd = function(self, ctx)
+            -- Find the directory containing .csproj or .sln
+            local current_dir = vim.fn.fnamemodify(ctx.filename, ':p:h')
+            while current_dir ~= '/' do
+              if vim.fn.glob(current_dir .. '/*.csproj') ~= '' or vim.fn.glob(current_dir .. '/*.sln') ~= '' then
+                return current_dir
+              end
+              current_dir = vim.fn.fnamemodify(current_dir, ':h')
+            end
+            return vim.fn.fnamemodify(ctx.filename, ':p:h')
+          end,
         },
       },
     },
