@@ -40,6 +40,11 @@ function M.setup(dap)
             prompt_title = 'Select DLL to debug',
             cwd = cwd .. '/bin',
             find_command = { 'find', '.', '-name', '*.dll', '-type', 'f' },
+            previewer = false,  -- Disable preview for DLL selection
+            layout_config = {
+              height = 0.4,  -- Smaller height since no preview
+              width = 0.6,
+            },
             attach_mappings = function(prompt_bufnr, map)
               local actions = require('telescope.actions')
               local action_state = require('telescope.actions.state')
@@ -78,6 +83,11 @@ function M.setup(dap)
             prompt_title = 'Select DLL to debug',
             cwd = cwd,
             find_command = { 'find', '.', '-name', '*.dll', '-type', 'f' },
+            previewer = false,  -- Disable preview for DLL selection
+            layout_config = {
+              height = 0.4,  -- Smaller height since no preview
+              width = 0.6,
+            },
             attach_mappings = function(prompt_bufnr, map)
               local actions = require('telescope.actions')
               local action_state = require('telescope.actions.state')
