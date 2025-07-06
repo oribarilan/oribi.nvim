@@ -8,6 +8,8 @@ vim.env.PYTHONPATH = 'src'
 
 vim.keymap.set('n', 'H', '^', { noremap = true, silent = true })
 vim.keymap.set('n', 'L', '$', { noremap = true, silent = true })
+vim.keymap.set('v', 'H', '^', { noremap = true, silent = true })
+vim.keymap.set('v', 'L', '$', { noremap = true, silent = true })
 vim.keymap.set('o', 'H', '^', { noremap = true })
 vim.keymap.set('o', 'L', '$', { noremap = true })
 vim.keymap.set('n', '<leader>ca', 'ggVG"+y', { desc = 'Copy all to clipboard' })
