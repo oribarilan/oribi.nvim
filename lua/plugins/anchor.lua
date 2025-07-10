@@ -1,0 +1,11 @@
+-- return {
+--   'oribarilan/anchor.nvim',
+--  event = 'VeryLazy',
+--  dependencies = {
+--    -- Optional for the default Telescope picker, falls back to built-in picker if not available
+--    'nvim-telescope/telescope.nvim'
+--  },
+--  config = function()
+--    require("anchor").setup()
+--  end,
+--}

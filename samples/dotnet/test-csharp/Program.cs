@@ -36,6 +36,8 @@ namespace TestCSharp
             person.Greet();
 
             Console.WriteLine("\n=== Test Complete ===");
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
         }
 
         // Test method definition and IntelliSense
@@ -57,11 +59,11 @@ namespace TestCSharp
             Age = age;
         }
 
+
         public void Greet()
         {
             Console.WriteLine($"Hello, my name is {Name} and I'm {Age} years old.");
         }
-
         // Test method with more complex logic
         public bool IsAdult()
         {

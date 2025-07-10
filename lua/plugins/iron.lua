@@ -36,5 +36,7 @@ return {
       },
       ignore_blank_lines = true,
     }
+    -- Custom keymap for toggling REPL
+    vim.keymap.set('n', '<leader>it', ':IronRepl<CR>', { desc = 'Toggle Iron REPL' })
   end,
 }
